@@ -213,6 +213,26 @@ def test_skip_closes_the_upload() -> None:
     assert apply_decision("I don't have it", "missing", pending, False, SLOTS) == expected
 
 
+def test_these_closes_every_open_slot() -> None:
+    pending = {"kind": "upload", "name": "business_registration"}
+    open_slots = {
+        "open": ["business_registration", "owner_id", "bank_proof", "shopfront_photo"],
+        "missing": [],
+    }
+    action = apply_decision("I don't have these.", "missing", pending, False, open_slots)
+    assert action == {"action": "missing", "slots": open_slots["open"]}
+
+
+def test_submit_waits_for_a_field_and_not_for_the_note() -> None:
+    city = {"kind": "field", "name": "city"}
+    note = {"kind": "field", "name": "note"}
+    assert apply_decision("Submit", "submit", city, False, SLOTS) == {
+        "action": "refuse",
+        "reason": "not_ready",
+    }
+    assert apply_decision("Submit", "submit", note, False, SLOTS) == {"action": "submit"}
+
+
 def test_a_file_name_fills_the_pending_upload() -> None:
     pending = {"kind": "upload", "name": "shopfront_photo"}
     action = apply_decision("front.png", "upload", pending, False, SLOTS)

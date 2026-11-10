@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
+
 from copilot.action.change import file_in, resolve_change, upload_slot
 from copilot.words import REFUSED_INTENTS
+
+_PLURAL = re.compile(r"\b(?:these|them|those)\b", re.I)
 
 
 def apply_decision(
@@ -25,7 +29,7 @@ def apply_decision(
     if intent == "change_answer":
         return _change(line, held)
     if intent == "missing":
-        return _missing(pending, held, slots, kind)
+        return _missing(line, pending, held, slots, kind)
     if intent == "upload" or (intent == "answer" and kind == "upload"):
         return _upload(line, pending, slots, kind)
     if intent == "answer" and kind == "field":
@@ -36,9 +40,13 @@ def apply_decision(
 def _submit(held: bool, pending: dict | None) -> dict:
     if held:
         return {"action": "review"}
-    if pending:
+    if pending and not _note_only(pending):
         return {"action": "refuse", "reason": "not_ready"}
     return {"action": "submit"}
+
+
+def _note_only(pending: dict) -> bool:
+    return pending.get("kind") == "field" and pending.get("name") == "note"
 
 
 def _change(line: str, held: bool) -> dict:
@@ -50,7 +58,9 @@ def _change(line: str, held: bool) -> dict:
     return {"action": "refuse", "reason": "change_how"}
 
 
-def _missing(pending: dict | None, held: bool, slots: dict[str, list[str]], kind: str | None) -> dict:
+def _missing(line: str, pending: dict | None, held: bool, slots: dict[str, list[str]], kind: str | None) -> dict:
+    if _PLURAL.search(line) and slots["open"] and not held:
+        return {"action": "missing", "slots": list(slots["open"])}
     if kind == "upload":
         return {"action": "missing", "slots": [str(pending["name"])]}
     if not pending and not held and slots["open"]:
