@@ -1,0 +1,70 @@
+"""One intent becomes at most one tool call."""
+
+from __future__ import annotations
+
+from copilot.action.change import file_in, resolve_change, upload_slot
+from copilot.words import REFUSED_INTENTS
+
+
+def apply_decision(
+    line: str,
+    intent: str,
+    pending: dict | None,
+    held: bool,
+    slots: dict[str, list[str]],
+) -> dict:
+    kind = pending.get("kind") if pending else None
+    if intent == "why":
+        return {"action": "why"}
+    if intent in REFUSED_INTENTS:
+        return {"action": "refuse", "reason": intent}
+    if intent == "review_id":
+        return {"action": "review"} if held else {"action": "refuse", "reason": "no_review_yet"}
+    if intent == "submit":
+        return _submit(held, pending)
+    if intent == "change_answer":
+        return _change(line, held)
+    if intent == "missing":
+        return _missing(pending, held, slots, kind)
+    if intent == "upload" or (intent == "answer" and kind == "upload"):
+        return _upload(line, pending, slots, kind)
+    if intent == "answer" and kind == "field":
+        return {"action": "save", "field": str(pending["name"]), "value": line.strip()}
+    return {"action": "again"}
+
+
+def _submit(held: bool, pending: dict | None) -> dict:
+    if held:
+        return {"action": "review"}
+    if pending:
+        return {"action": "refuse", "reason": "not_ready"}
+    return {"action": "submit"}
+
+
+def _change(line: str, held: bool) -> dict:
+    if held:
+        return {"action": "refuse", "reason": "after_verdict"}
+    change = resolve_change(line)
+    if change:
+        return {"action": "save", **change}
+    return {"action": "refuse", "reason": "change_how"}
+
+
+def _missing(pending: dict | None, held: bool, slots: dict[str, list[str]], kind: str | None) -> dict:
+    if kind == "upload":
+        return {"action": "missing", "slots": [str(pending["name"])]}
+    if not pending and not held and slots["open"]:
+        return {"action": "missing", "slots": list(slots["open"])}
+    return {"action": "again"}
+
+
+def _upload(line: str, pending: dict | None, slots: dict[str, list[str]], kind: str | None) -> dict:
+    if kind == "field":
+        return {"action": "again"}
+    name = file_in(line)
+    if not name:
+        return {"action": "refuse", "reason": "no_file"}
+    slot = upload_slot(line, pending, slots)
+    if not slot:
+        return {"action": "which", "slots": slots["open"] + slots["missing"]}
+    return {"action": "file", "slot": slot, "file": name}

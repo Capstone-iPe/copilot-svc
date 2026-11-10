@@ -1,0 +1,31 @@
+[project]
+name = "ipe-copilot"
+version = "0.1.0"
+description = "Merchant onboarding copilot. MCP client, local retrieval, hosted chat."
+requires-python = ">=3.11"
+dependencies = [
+    "sentence-transformers",
+    "rank-bm25",
+    "numpy",
+    "mcp",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+src = ["src", "tests"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+extraPaths = ["src"]
+typeCheckingMode = "basic"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
