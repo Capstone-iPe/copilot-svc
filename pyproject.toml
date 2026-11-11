@@ -8,6 +8,8 @@ dependencies = [
     "rank-bm25",
     "numpy",
     "mcp",
+    "fastapi",
+    "uvicorn",
 ]
 
 [tool.pytest.ini_options]

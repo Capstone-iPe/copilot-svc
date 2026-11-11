@@ -20,7 +20,6 @@ from copilot.say.refusals import refusal, which_reply
 
 log = logging.getLogger("copilot")
 
-
 class Session:
     def __init__(
         self,
@@ -95,7 +94,6 @@ class Session:
             if results[-1].get("error"):
                 break
         return results
-
 
 def _view(step: dict):
     pending = step.get("pending") if isinstance(step.get("pending"), dict) else None
