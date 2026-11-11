@@ -7,6 +7,7 @@ import json
 import logging
 import webbrowser
 
+from copilot.onb.onb_tools import OnbTools
 from copilot.onb.sign_in import Tokens, Wait, loopback
 
 log = logging.getLogger("copilot")
@@ -23,7 +24,7 @@ def tool_payload(result: object) -> dict:
     raise RuntimeError("The tool result was empty.")
 
 
-class McpOnb:
+class McpOnb(OnbTools):
     def __init__(self, client) -> None:
         self.client = client
 

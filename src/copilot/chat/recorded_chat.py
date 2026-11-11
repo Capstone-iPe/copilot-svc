@@ -5,8 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 
+from copilot.chat.chat_model import ChatModel
 
-class RecordedChat:
+
+class RecordedChat(ChatModel):
     def __init__(self, store: dict[str, str] | None = None) -> None:
         self.store = store or {}
         self.misses: list[str] = []

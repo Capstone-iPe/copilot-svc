@@ -9,11 +9,12 @@ _ONB = Path(__file__).resolve().parents[2] / "onb-svc" / "src"
 if str(_ONB) not in sys.path:
     sys.path.insert(0, str(_ONB))
 
+from copilot.onb.onb_tools import OnbTools
 from onb.intake.cases import ask, get_review, save_answer, save_file, submit
 from onb.store.memory_application_store import MemoryApplicationStore
 
 
-class MemoryOnb:
+class MemoryOnb(OnbTools):
     def __init__(self) -> None:
         self.store = MemoryApplicationStore()
 

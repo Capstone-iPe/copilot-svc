@@ -2,3 +2,5 @@ sentence-transformers
 rank-bm25
 numpy
 mcp
+uvicorn
+starlette

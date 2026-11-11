@@ -22,6 +22,7 @@ if str(SRC) not in sys.path:
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+from copilot.adapters.replay import ReplayAdapter
 from copilot.chat.qwen_chat import QwenChat
 from copilot.config import DEFAULT_INDEX
 from copilot.corpus.index_corpus import Corpus
@@ -29,6 +30,8 @@ from copilot.say.redact import redact
 from copilot.session import Session
 from copilot.words import LIVE_CLAIM
 from memory_onb import MemoryOnb
+
+ADAPTER = ReplayAdapter()
 
 OUTCOME = {
     "In review": "IN_REVIEW",
@@ -76,27 +79,27 @@ async def play(case_id: str, corpus: Corpus, chat) -> dict:
     session = Session(chat, onb, corpus, step["application_id"], step)
     problems = []
     review_ids: list[str] = []
+    last = ADAPTER.open(step)
     text = (EVAL / "cases" / f"{case_id}.md").read_text(encoding="utf-8")
     for raw in merchant_lines(text):
         pending = session.step.get("pending") if isinstance(session.step.get("pending"), dict) else None
-        before = str(pending.get("name") or "") if pending else ""
+        before = last["pending_name"] or ""
         line = as_said(raw, pending)
-        reply = await session.turn(line)
-        problems.extend(_turn_problems(reply, line, before))
-        review_ids.extend(re.findall(r"MR-\d+", reply.text))
-    return _case_result(session.step, problems, review_ids)
+        last = ADAPTER.render(await session.turn(line), line=line)
+        problems.extend(_turn_problems(last, line, before))
+        review_ids.extend(re.findall(r"MR-\d+", last["text"]))
+    return _case_result(last, problems, review_ids)
 
 
-def _turn_problems(reply, line: str, before: str) -> list[str]:
+def _turn_problems(out: dict, line: str, before: str) -> list[str]:
     found = []
-    if LIVE_CLAIM.search(reply.text):
+    if LIVE_CLAIM.search(out["text"]):
         found.append("live claim")
-    shown = redact(reply.text, line)
+    shown = redact(out["text"], line)
     if "[number hidden]" in shown or _typed_digits(line, shown):
         found.append("typed digits")
-    pending = reply.step.get("pending") if isinstance(reply.step.get("pending"), dict) else None
-    after = str(pending.get("name") or "") if pending else ""
-    if reply.trace["action"] in {"why", "refuse"} and before and after != before:
+    after = out["pending_name"] or ""
+    if out["action"] in {"why", "refuse"} and before and after != before:
         found.append(f"left {before}")
     return found
 
@@ -111,15 +114,13 @@ def _typed_digits(line: str, shown: str) -> bool:
     return False
 
 
-def _case_result(step: dict, problems: list[str], review_ids: list[str]) -> dict:
-    snapshot = step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {}
-    verdict = snapshot.get("verdict") if isinstance(snapshot.get("verdict"), dict) else {}
-    review_id = verdict.get("review_id")
+def _case_result(last: dict, problems: list[str], review_ids: list[str]) -> dict:
+    review_id = last["review_id"]
     if review_id:
         review_ids.append(str(review_id))
     if len(set(review_ids)) > 1:
         problems.append("review id changed")
-    return {"outcome": verdict.get("outcome"), "review_id": review_id, "problems": problems}
+    return {"outcome": last["outcome"], "review_id": review_id, "problems": problems}
 
 
 def judge(case_id: str, result: dict, want: dict) -> list[str]:

@@ -26,6 +26,7 @@ import logging
 from pathlib import Path
 
 from copilot.corpus.chunks import MODEL, RERANK_MODEL, load_chunks, search_text, tokens
+from copilot.corpus.passages import Passages
 
 RRF_K = 60
 POOL = 20
@@ -121,7 +122,7 @@ def one_per_document(rows: list[dict], k: int) -> list[dict]:
     return found
 
 
-class Corpus:
+class Corpus(Passages):
     def __init__(self, index: Path, rerank: bool = True) -> None:
         from rank_bm25 import BM25Okapi
         from sentence_transformers import SentenceTransformer

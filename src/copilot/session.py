@@ -7,9 +7,12 @@ import logging
 
 from copilot.action.decide import apply_decision
 from copilot.action.slots import slot_states
+from copilot.chat.chat_model import ChatModel
+from copilot.corpus.passages import Passages
 from copilot.explain.why import verdict_explanation, why_reply
 from copilot.intent.classifier import stage
 from copilot.intent.reader import read_intent
+from copilot.onb.onb_tools import OnbTools
 from copilot.reply import Reply
 from copilot.say.files import result_reply
 from copilot.say.questions import prompt_for
@@ -19,7 +22,14 @@ log = logging.getLogger("copilot")
 
 
 class Session:
-    def __init__(self, chat, onb, corpus, application_id: str, step: dict) -> None:
+    def __init__(
+        self,
+        chat: ChatModel,
+        onb: OnbTools,
+        corpus: Passages,
+        application_id: str,
+        step: dict,
+    ) -> None:
         self.chat = chat
         self.onb = onb
         self.corpus = corpus

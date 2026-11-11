@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.request
 
+from copilot.chat.chat_model import ChatModel
 from copilot.config import CHAT_BASE_URL, CHAT_CA_CERT, chat_api_key, chat_model
 from copilot.words import THINK
 
@@ -16,7 +17,7 @@ log = logging.getLogger("copilot")
 _BAD_REQUEST = object()
 
 
-class QwenChat:
+class QwenChat(ChatModel):
     def complete(self, messages: list[dict], max_tokens: int, schema: dict | None = None) -> str | None:
         key = chat_api_key()
         if not key:

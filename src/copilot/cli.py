@@ -8,12 +8,11 @@ import logging
 import sys
 from pathlib import Path
 
+from copilot.adapters.cli import CliAdapter
 from copilot.chat.qwen_chat import QwenChat
 from copilot.config import DEFAULT_INDEX, mcp_url
 from copilot.corpus.index_corpus import Corpus
 from copilot.onb.mcp_onb import McpOnb, connect
-from copilot.say.questions import prompt_for
-from copilot.say.redact import redact
 from copilot.session import Session
 from copilot.words import QUIT
 
@@ -31,24 +30,29 @@ async def run(url: str, index: Path) -> None:
 
 
 async def _talk(onb: McpOnb, corpus: Corpus) -> None:
+    adapter = CliAdapter()
     step = await onb.next_step()
     if step.get("error"):
         print(f"ONB did not open an application ({step['error']}).")
         return
     session = Session(QwenChat(), onb, corpus, step["application_id"], step)
-    print(prompt_for(step))
+    opened = adapter.open(step)
+    if opened["prompt"]:
+        print(opened["prompt"])
     while True:
         line = _read()
         if line is None or line.strip().lower() in QUIT:
             break
         if not line.strip():
-            print(prompt_for(session.step))
+            again = adapter.open(session.step)
+            if again["prompt"]:
+                print(again["prompt"])
             continue
-        reply = await session.turn(line)
-        if reply.text:
-            print(redact(reply.text, line))
-        if reply.prompt:
-            print(reply.prompt)
+        out = adapter.render(await session.turn(line), line=line)
+        if out["text"]:
+            print(out["text"])
+        if out["prompt"]:
+            print(out["prompt"])
 
 
 def _read() -> str | None:

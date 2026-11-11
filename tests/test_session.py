@@ -2,6 +2,9 @@
 
 import asyncio
 
+from copilot.chat.chat_model import ChatModel
+from copilot.corpus.passages import Passages
+from copilot.onb.onb_tools import OnbTools
 from copilot.session import Session
 
 STEP = {
@@ -11,7 +14,7 @@ STEP = {
 }
 
 
-class FakeChat:
+class FakeChat(ChatModel):
     def __init__(self, label: str = '{"intent": "answer"}') -> None:
         self.label = label
         self.calls = 0
@@ -21,7 +24,7 @@ class FakeChat:
         return self.label
 
 
-class FakeOnb:
+class FakeOnb(OnbTools):
     def __init__(self) -> None:
         self.calls: list[tuple] = []
 
@@ -46,9 +49,10 @@ class FakeOnb:
         return {}
 
 
-class FakeCorpus:
-    rows: list = []
-    document_ids: set = set()
+class FakeCorpus(Passages):
+    def __init__(self) -> None:
+        self.rows: list[dict] = []
+        self.document_ids: set[str] = set()
 
     def search(self, query, k=4):
         return []

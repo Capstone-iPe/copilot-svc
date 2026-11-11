@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, runtime_checkable
 
 
+@runtime_checkable
 class OnbTools(Protocol):
     async def next_step(self, application_id: str | None = None) -> dict: ...
 
