@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Chunk the policy corpus, embed it via the hosted API, and search it.
 
-The corpus is the analysis repo's corpus/ directory: 500 documents, split at
-800 characters with a 120-character overlap. eval/ is not read.
+The corpus is the Capstone-iPe/corpus git submodule at corpus/: about 500
+documents, split at 800 characters with a 120-character overlap. eval/ is
+not read.
 
 Build writes index/chunks.jsonl and index/vectors.npy. Each chunk is embedded
 with its document id and title in front and the shared header boilerplate
@@ -14,7 +15,7 @@ annexes, circulars, and FAQ, drops every chunk that is not in force, reranks
 the top of the list with a local cross-encoder when one is cached, and keeps
 one chunk per document.
 
-    python -m copilot.corpus.index_corpus build --corpus /path/to/corpus
+    python -m copilot.corpus.index_corpus build
     python -m copilot.corpus.index_corpus search "why is bank proof required"
 """
 
@@ -25,7 +26,7 @@ import json
 import logging
 from pathlib import Path
 
-from copilot.config import DEFAULT_INDEX, embedding_model
+from copilot.config import DEFAULT_INDEX, corpus_path, embedding_model
 from copilot.corpus.chunks import RERANK_MODEL, load_chunks, search_text, tokens
 from copilot.corpus.embed import embed_texts
 from copilot.corpus.passages import Passages
@@ -164,7 +165,7 @@ def main() -> None:
     commands = parser.add_subparsers(dest="command", required=True)
 
     build_command = commands.add_parser("build")
-    build_command.add_argument("--corpus", type=Path, required=True)
+    build_command.add_argument("--corpus", type=Path, default=corpus_path())
     build_command.add_argument("--out", type=Path, default=DEFAULT_INDEX)
 
     search_command = commands.add_parser("search")

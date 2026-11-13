@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
 DEFAULT_INDEX = ROOT / "index"
+DEFAULT_CORPUS = ROOT / "corpus"
 
 
 def _path(name: str, default: Path) -> Path:
@@ -55,6 +56,10 @@ def embedding_model() -> str:
 
 def mcp_url() -> str:
     return os.environ.get("ONB_MCP_URL", "https://onb-k8ud.onrender.com/mcp").strip()
+
+
+def corpus_path() -> Path:
+    return _path("CORPUS_PATH", DEFAULT_CORPUS)
 
 
 # Back-compat for imports that expect module-level names.
