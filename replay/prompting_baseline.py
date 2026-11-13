@@ -22,7 +22,7 @@ SRC = HERE.parent / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from copilot.config import CHAT_BASE_URL, CHAT_CA_CERT, chat_api_key, chat_model
+from copilot.config import chat_api_key, chat_base_url, chat_ca_cert, chat_model
 
 CASES = Path("/Users/rupeshsasne/projects/iPe/docs/prompting-baseline-cases.json")
 OUT = Path("/Users/rupeshsasne/projects/iPe/docs/prompting-baseline-results.json")
@@ -112,7 +112,7 @@ def main() -> None:
     cases = json.loads(CASES.read_text(encoding="utf-8"))
     results = {"model": chat_model(), "policy": POLICY, "strategies": {}}
     for name, runner in (
-        ("structured_few_shot", run_structured),
+
         ("cot_self_consistency", run_cot),
         ("decomposition", run_decomposition),
     ):
@@ -230,12 +230,12 @@ def complete(messages, key: str, max_tokens: int, temperature: float, schema: di
         messages = [*messages[:-1], {**messages[-1], "content": f"{messages[-1]['content']} /no_think"}]
         body["messages"] = messages
     request = urllib.request.Request(
-        f"{CHAT_BASE_URL.rstrip('/')}/chat/completions",
+        f"{chat_base_url().rstrip('/')}/chat/completions",
         data=json.dumps(body).encode(),
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         method="POST",
     )
-    context = ssl.create_default_context(cafile=str(CHAT_CA_CERT))
+    context = ssl.create_default_context(cafile=str(chat_ca_cert()))
     for delay in (0, 2, 4, 8):
         if delay:
             time.sleep(delay)
@@ -248,7 +248,7 @@ def complete(messages, key: str, max_tokens: int, temperature: float, schema: di
                 body.pop("response_format", None)
                 body.pop("chat_template_kwargs", None)
                 request = urllib.request.Request(
-                    f"{CHAT_BASE_URL.rstrip('/')}/chat/completions",
+                    f"{chat_base_url().rstrip('/')}/chat/completions",
                     data=json.dumps(body).encode(),
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     method="POST",

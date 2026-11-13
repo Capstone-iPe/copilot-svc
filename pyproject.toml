@@ -10,6 +10,7 @@ dependencies = [
     "mcp",
     "fastapi",
     "uvicorn",
+    "python-dotenv",
 ]
 
 [tool.pytest.ini_options]

@@ -10,7 +10,7 @@ import urllib.error
 import urllib.request
 
 from copilot.chat.chat_model import ChatModel
-from copilot.config import CHAT_BASE_URL, CHAT_CA_CERT, chat_api_key, chat_model
+from copilot.config import chat_api_key, chat_base_url, chat_ca_cert, chat_model
 from copilot.words import THINK
 
 log = logging.getLogger("copilot")
@@ -24,11 +24,12 @@ class QwenChat(ChatModel):
             return None
         model = chat_model()
         body = _body(messages, model, max_tokens, schema)
-        reply = _post(CHAT_BASE_URL.rstrip("/"), key, body)
+        base = chat_base_url().rstrip("/")
+        reply = _post(base, key, body)
         if reply is _BAD_REQUEST:
             body.pop("response_format", None)
             body.pop("chat_template_kwargs", None)
-            reply = _post(CHAT_BASE_URL.rstrip("/"), key, body)
+            reply = _post(base, key, body)
         if not isinstance(reply, str):
             return None
         return THINK.sub("", reply).strip()
@@ -65,7 +66,7 @@ def _post(base: str, key: str, body: dict):
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         method="POST",
     )
-    context = ssl.create_default_context(cafile=str(CHAT_CA_CERT))
+    context = ssl.create_default_context(cafile=str(chat_ca_cert()))
     for delay in (0, 2, 4, 8):
         if delay:
             time.sleep(delay)

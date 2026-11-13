@@ -8,7 +8,6 @@ from pathlib import Path
 
 CHUNK = 800
 OVERLAP = 120
-MODEL = "all-MiniLM-L6-v2"
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 TOKEN = re.compile(r"[a-z0-9§]+(?:-[a-z0-9§]+)*")
 HEADER_ROW = re.compile(

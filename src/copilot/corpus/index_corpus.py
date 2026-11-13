@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
-"""Chunk the policy corpus, embed it locally, and search it.
+"""Chunk the policy corpus, embed it via the hosted API, and search it.
 
 The corpus is the analysis repo's corpus/ directory: 500 documents, split at
-800 characters with a 120-character overlap (1,446 chunks). eval/ is not read.
+800 characters with a 120-character overlap. eval/ is not read.
 
 Build writes index/chunks.jsonl and index/vectors.npy. Each chunk is embedded
 with its document id and title in front and the shared header boilerplate
 removed, so every memo does not look alike to the embedding model.
 
-Search embeds the question with the same local model, searches that vector
+Search embeds the question with the same hosted model, searches that vector
 list and a keyword list, merges the two with a small boost for policies,
 annexes, circulars, and FAQ, drops every chunk that is not in force, reranks
 the top of the list with a local cross-encoder when one is cached, and keeps
 one chunk per document.
 
-    python index_corpus.py build --corpus /path/to/corpus
-    python index_corpus.py search "why is bank proof required"
+    python -m copilot.corpus.index_corpus build --corpus /path/to/corpus
+    python -m copilot.corpus.index_corpus search "why is bank proof required"
 """
 
 from __future__ import annotations
@@ -25,13 +25,13 @@ import json
 import logging
 from pathlib import Path
 
-from copilot.corpus.chunks import MODEL, RERANK_MODEL, load_chunks, search_text, tokens
+from copilot.config import DEFAULT_INDEX, embedding_model
+from copilot.corpus.chunks import RERANK_MODEL, load_chunks, search_text, tokens
+from copilot.corpus.embed import embed_texts
 from copilot.corpus.passages import Passages
 
 RRF_K = 60
 POOL = 20
-HERE = Path(__file__).resolve().parents[3]
-DEFAULT_INDEX = HERE / "index"
 
 # Added to a chunk's fused score, in units of a first-place rank in one list.
 TIER_BONUS = {
@@ -46,16 +46,11 @@ log = logging.getLogger("index")
 
 
 def build(corpus: Path, out: Path) -> None:
-    from sentence_transformers import SentenceTransformer
     import numpy as np
 
     rows = load_chunks(corpus)
-    model = SentenceTransformer(MODEL)
-    vectors = model.encode(
-        [search_text(row) for row in rows],
-        normalize_embeddings=True,
-        show_progress_bar=True,
-    )
+    print(f"embedding {len(rows)} chunks with {embedding_model()}")
+    vectors = embed_texts([search_text(row) for row in rows])
     out.mkdir(parents=True, exist_ok=True)
     with (out / "chunks.jsonl").open("w", encoding="utf-8") as handle:
         for row in rows:
@@ -125,11 +120,9 @@ def one_per_document(rows: list[dict], k: int) -> list[dict]:
 class Corpus(Passages):
     def __init__(self, index: Path, rerank: bool = True) -> None:
         from rank_bm25 import BM25Okapi
-        from sentence_transformers import SentenceTransformer
         import numpy as np
 
         self.rows, self.vectors = load_index(index)
-        self.model = SentenceTransformer(MODEL, local_files_only=True)
         self.keyword = BM25Okapi([tokens(search_text(row)) for row in self.rows])
         self.bonus = tier_bonus(self.rows)
         self.document_ids = {row["document_id"] for row in self.rows if row["in_force"]}
@@ -137,7 +130,7 @@ class Corpus(Passages):
         self.np = np
 
     def search(self, query: str, k: int = 4) -> list[dict]:
-        query_vector = self.model.encode([query], normalize_embeddings=True)[0]
+        query_vector = embed_texts([query])[0]
         vector_order = self.np.argsort(-(self.vectors @ query_vector)).tolist()
         keyword_order = self.np.argsort(-self.keyword.get_scores(tokens(query))).tolist()
         pool = []

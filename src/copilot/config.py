@@ -1,25 +1,62 @@
-"""Addresses the running copilot uses. The API key stays in the environment."""
+"""Addresses and keys the running copilot uses. Loaded from .env when present."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT = Path(__file__).resolve().parents[2]
-CHAT_BASE_URL = "https://103.42.50.41:1032/v1"
-CHAT_CA_CERT = ROOT / "vm06-ca.crt"
-DEFAULT_MODEL = "Qwen/Qwen3-8B"
-DEFAULT_MCP = "https://onb-k8ud.onrender.com/mcp"
+load_dotenv(ROOT / ".env")
+
 DEFAULT_INDEX = ROOT / "index"
+
+
+def _path(name: str, default: Path) -> Path:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return default
+    path = Path(raw).expanduser()
+    return path if path.is_absolute() else ROOT / path
 
 
 def chat_api_key() -> str:
     return os.environ.get("CHAT_API_KEY", "").strip()
 
 
+def chat_base_url() -> str:
+    return os.environ.get("CHAT_BASE_URL", "https://103.42.50.41:1032/v1").strip()
+
+
+def chat_ca_cert() -> Path:
+    return _path("CHAT_CA_CERT", ROOT / "vm06-ca.crt")
+
+
 def chat_model() -> str:
-    return os.environ.get("CHAT_MODEL", DEFAULT_MODEL)
+    return os.environ.get("CHAT_MODEL", "Qwen/Qwen3-8B").strip()
+
+
+def embeddings_api_key() -> str:
+    return os.environ.get("EMBEDDINGS_API_KEY", "").strip()
+
+
+def embeddings_base_url() -> str:
+    return os.environ.get("EMBEDDINGS_BASE_URL", "https://103.42.50.41:1035/v1").strip()
+
+
+def embeddings_ca_cert() -> Path:
+    return _path("EMBEDDINGS_CA_CERT", ROOT / "vm02-ca.crt")
+
+
+def embedding_model() -> str:
+    return os.environ.get("EMBEDDING_MODEL", "bge-small-en-v1.5").strip()
 
 
 def mcp_url() -> str:
-    return os.environ.get("ONB_MCP_URL", DEFAULT_MCP)
+    return os.environ.get("ONB_MCP_URL", "https://onb-k8ud.onrender.com/mcp").strip()
+
+
+# Back-compat for imports that expect module-level names.
+CHAT_BASE_URL = chat_base_url()
+CHAT_CA_CERT = chat_ca_cert()
