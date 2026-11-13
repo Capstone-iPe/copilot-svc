@@ -40,7 +40,7 @@ def mcp_url() -> str:
 
 
 def corpus_search_url() -> str:
-    return os.environ.get("CORPUS_SEARCH_URL", "http://127.0.0.1:8081").strip()
+    return os.environ.get("CORPUS_SEARCH_URL", "https://onb-corpus.onrender.com").strip()
 
 
 def corpus_api_key() -> str:
