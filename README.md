@@ -15,7 +15,7 @@ If you already cloned without submodules:
 git submodule update --init --recursive
 ```
 
-The retrieval pack is the [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus) submodule at `corpus/` (same submodule as in the analysis repo).
+The retrieval pack is the [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus) submodule at `corpus/`. Memo generators live in `corpus/corpus-build/` inside that submodule.
 
 ## Config
 
