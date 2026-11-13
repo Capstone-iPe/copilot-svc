@@ -2,6 +2,8 @@
 
 Merchant onboarding copilot: hosted ≤8B chat, RAG over the policy corpus, MCP client to ONB.
 
+The retrieval pack is the [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus) submodule at `corpus/`. Indexing reads only `corpus/documents/**/*.md`. Memo generators live in that repo’s `corpus-build/` (present under the submodule; the running copilot does not use them).
+
 ## Clone
 
 ```bash
@@ -9,13 +11,12 @@ git clone --recurse-submodules https://github.com/Capstone-iPe/copilot-svc.git
 cd copilot-svc
 ```
 
-If you already cloned without submodules:
+Already cloned?
 
 ```bash
+git pull
 git submodule update --init --recursive
 ```
-
-The retrieval pack is the [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus) submodule at `corpus/`. Memo generators live in `corpus/corpus-build/` inside that submodule.
 
 ## Config
 
@@ -26,8 +27,8 @@ cp .env.example .env
 
 Place the CA files next to the repo (or set absolute paths in `.env`):
 
-- `vm06-ca.crt` — chat API  
-- `vm02-ca.crt` — embeddings API  
+- `vm06-ca.crt` — chat API
+- `vm02-ca.crt` — embeddings API
 
 `.env` and `*.crt` are gitignored.
 
@@ -50,7 +51,7 @@ python3 -m venv .venv
 Rebuild whenever the corpus submodule or embedding model changes:
 
 ```bash
-PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus build --corpus corpus
+PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus build
 ```
 
 Smoke search:
@@ -78,3 +79,17 @@ PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
+
+## Update the corpus submodule
+
+After documents change in [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus):
+
+```bash
+git submodule update --remote corpus
+git add corpus
+git commit -m "Bump corpus submodule"
+git push
+PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus build
+```
+
+To regenerate memos, work in a [corpus](https://github.com/Capstone-iPe/corpus) checkout (see that repo’s README), then bump as above.
