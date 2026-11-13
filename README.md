@@ -34,7 +34,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Run [onb-corpus](https://github.com/Capstone-iPe/onb-corpus) first (build index + `python src/__main__.py serve`).
+Run [onb-corpus](https://github.com/Capstone-iPe/onb-corpus) first (build index + `PYTHONPATH=src python -m onb_corpus serve`).
 
 ## Run
 
