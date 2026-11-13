@@ -10,9 +10,6 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
-DEFAULT_INDEX = ROOT / "index"
-DEFAULT_CORPUS = ROOT / "corpus"
-
 
 def _path(name: str, default: Path) -> Path:
     raw = os.environ.get(name, "").strip()
@@ -38,28 +35,16 @@ def chat_model() -> str:
     return os.environ.get("CHAT_MODEL", "Qwen/Qwen3-8B").strip()
 
 
-def embeddings_api_key() -> str:
-    return os.environ.get("EMBEDDINGS_API_KEY", "").strip()
-
-
-def embeddings_base_url() -> str:
-    return os.environ.get("EMBEDDINGS_BASE_URL", "https://103.42.50.41:1035/v1").strip()
-
-
-def embeddings_ca_cert() -> Path:
-    return _path("EMBEDDINGS_CA_CERT", ROOT / "vm02-ca.crt")
-
-
-def embedding_model() -> str:
-    return os.environ.get("EMBEDDING_MODEL", "bge-small-en-v1.5").strip()
-
-
 def mcp_url() -> str:
     return os.environ.get("ONB_MCP_URL", "https://onb-k8ud.onrender.com/mcp").strip()
 
 
-def corpus_path() -> Path:
-    return _path("CORPUS_PATH", DEFAULT_CORPUS)
+def corpus_search_url() -> str:
+    return os.environ.get("CORPUS_SEARCH_URL", "http://127.0.0.1:8081").strip()
+
+
+def corpus_api_key() -> str:
+    return os.environ.get("CORPUS_API_KEY", "").strip()
 
 
 # Back-compat for imports that expect module-level names.

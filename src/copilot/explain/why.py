@@ -13,7 +13,7 @@ from copilot.words import DOC_ID, FIELD_TOPICS, SLOT_WORDS, WHY_STOP
 
 def asks_more_than_why(line: str) -> bool:
     """True when the merchant asked something besides why this field is on screen."""
-    from copilot.corpus.chunks import tokens
+    from copilot.corpus.text import tokens
 
     plain = WHY_STOP | {"but", "about", "just", "then", "also", "still"}
     return any(len(word) > 2 and word not in plain for word in tokens(line))

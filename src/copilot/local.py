@@ -10,8 +10,7 @@ import sys
 from pathlib import Path
 
 from copilot.chat.qwen_chat import QwenChat
-from copilot.config import DEFAULT_INDEX
-from copilot.corpus.index_corpus import Corpus
+from copilot.corpus.remote import RemoteCorpus
 from copilot.session import Session
 
 
@@ -31,6 +30,6 @@ def _memory_onb():
 async def local_start() -> tuple[Session, dict]:
     onb = _memory_onb()
     step = await onb.next_step()
-    corpus = Corpus(DEFAULT_INDEX)
+    corpus = RemoteCorpus()
     session = Session(QwenChat(), onb, corpus, step["application_id"], step)
     return session, step

@@ -84,7 +84,7 @@ copilot-svc/
     corpus/
       passages.py           Passages protocol
       chunks.py             chunk, clean, tokens
-      index_corpus.py       build, and search: vector, keyword, merge, tier bonus, rerank
+      remote.py             HTTP client for onb-corpus /v1/search (Bearer)
   tests/
     test_turn.py            pure turn rules
     test_session.py         Session with fake chat, ONB, and corpus

@@ -24,8 +24,7 @@ if str(HERE) not in sys.path:
 
 from copilot.adapters.replay import ReplayAdapter
 from copilot.chat.qwen_chat import QwenChat
-from copilot.config import DEFAULT_INDEX
-from copilot.corpus.index_corpus import Corpus
+from copilot.corpus.remote import RemoteCorpus
 from copilot.say.redact import redact
 from copilot.session import Session
 from copilot.words import LIVE_CLAIM
@@ -141,7 +140,7 @@ async def main() -> None:
     args = parser.parse_args()
     rows = expected()
     chosen = _chosen(rows, args.holdout, args.only)
-    corpus = Corpus(DEFAULT_INDEX)
+    corpus = RemoteCorpus()
     chat = QwenChat()
     failed = 0
     for case_id in chosen:

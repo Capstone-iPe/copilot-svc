@@ -6,19 +6,19 @@ import argparse
 import asyncio
 import logging
 import sys
-from pathlib import Path
 
 from copilot.adapters.cli import CliAdapter
 from copilot.chat.qwen_chat import QwenChat
-from copilot.config import DEFAULT_INDEX, mcp_url
-from copilot.corpus.index_corpus import Corpus
+from copilot.config import mcp_url
+from copilot.corpus.passages import Passages
+from copilot.corpus.remote import RemoteCorpus
 from copilot.onb.mcp_onb import McpOnb, connect
 from copilot.session import Session
 from copilot.words import QUIT
 
 
-async def run(url: str, index: Path) -> None:
-    corpus = Corpus(index)
+async def run(url: str) -> None:
+    corpus = RemoteCorpus()
     client, http, waiter = await connect(url)
     try:
         await _talk(McpOnb(client), corpus)
@@ -29,7 +29,7 @@ async def run(url: str, index: Path) -> None:
             waiter.server.shutdown()
 
 
-async def _talk(onb: McpOnb, corpus: Corpus) -> None:
+async def _talk(onb: McpOnb, corpus: Passages) -> None:
     adapter = CliAdapter()
     step = await onb.next_step()
     if step.get("error"):
@@ -66,9 +66,8 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
     parser = argparse.ArgumentParser(description="Talk to ONB as the copilot.")
     parser.add_argument("--mcp", default=mcp_url())
-    parser.add_argument("--index", type=Path, default=DEFAULT_INDEX)
     args = parser.parse_args()
-    asyncio.run(run(args.mcp, args.index))
+    asyncio.run(run(args.mcp))
 
 
 if __name__ == "__main__":

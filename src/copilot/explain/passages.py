@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from copilot.corpus.chunks import search_text, tokens
+from copilot.corpus.text import search_text, tokens
 from copilot.words import DOC_ID, FIELD_WHY_FOLDERS, WHY_STOP
 
 

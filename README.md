@@ -1,43 +1,31 @@
 # iPe copilot service
 
-Merchant onboarding copilot: hosted ≤8B chat, RAG over the policy corpus, MCP client to ONB.
+Merchant onboarding copilot: hosted ≤8B chat, remote RAG via [onb-corpus](https://github.com/Capstone-iPe/onb-corpus), MCP client to ONB.
 
-The retrieval pack is the [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus) submodule at `corpus/`. Indexing reads only `corpus/documents/**/*.md`. Memo generators live in that repo’s `corpus-build/` (present under the submodule; the running copilot does not use them).
+The policy pack and search index live in **onb-corpus**. This service does not vendor documents or build an index.
 
 ## Clone
 
 ```bash
-git clone --recurse-submodules https://github.com/Capstone-iPe/copilot-svc.git
+git clone https://github.com/Capstone-iPe/copilot-svc.git
 cd copilot-svc
-```
-
-Already cloned?
-
-```bash
-git pull
-git submodule update --init --recursive
 ```
 
 ## Config
 
 ```bash
 cp .env.example .env
-# fill CHAT_API_KEY and EMBEDDINGS_API_KEY
+# fill CHAT_API_KEY and CORPUS_API_KEY (same secret as onb-corpus)
 ```
 
-Place the CA files next to the repo (or set absolute paths in `.env`):
-
-- `vm06-ca.crt` — chat API
-- `vm02-ca.crt` — embeddings API
-
-`.env` and `*.crt` are gitignored.
+Place `vm06-ca.crt` next to the repo (or set an absolute `CHAT_CA_CERT`). `.env` and `*.crt` are gitignored.
 
 | Variable | Purpose |
 |---|---|
 | `CHAT_*` | Hosted chat completions |
-| `EMBEDDINGS_*` / `EMBEDDING_MODEL` | Hosted embeddings (`bge-small-en-v1.5`) |
 | `ONB_MCP_URL` | ONB MCP endpoint |
-| `CORPUS_PATH` | Optional override (default `corpus`) |
+| `CORPUS_SEARCH_URL` | onb-corpus base URL (default `http://127.0.0.1:8081`) |
+| `CORPUS_API_KEY` | Bearer token for `/v1/*` (same value as onb-corpus) |
 
 ## Setup
 
@@ -46,19 +34,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-## Build the search index
-
-Rebuild whenever the corpus submodule or embedding model changes:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus build
-```
-
-Smoke search:
-
-```bash
-PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus search "why is bank proof required"
-```
+Run [onb-corpus](https://github.com/Capstone-iPe/onb-corpus) first (build index + `python -m onb_corpus serve`).
 
 ## Run
 
@@ -79,17 +55,3 @@ PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
-
-## Update the corpus submodule
-
-After documents change in [Capstone-iPe/corpus](https://github.com/Capstone-iPe/corpus):
-
-```bash
-git submodule update --remote corpus
-git add corpus
-git commit -m "Bump corpus submodule"
-git push
-PYTHONPATH=src .venv/bin/python -m copilot.corpus.index_corpus build
-```
-
-To regenerate memos, work in a [corpus](https://github.com/Capstone-iPe/corpus) checkout (see that repo’s README), then bump as above.
