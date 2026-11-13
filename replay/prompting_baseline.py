@@ -2,12 +2,12 @@
 
 Week 1-II prompting baseline is not copilot agent code. Run it from analysis:
 
-  https://github.com/Capstone-iPe/analysis/blob/main/docs/prompting_baseline.py
+  https://github.com/Capstone-iPe/analysis/tree/main/week1/prompting-baseline
 
-  cd analysis && python3 docs/prompting_baseline.py
+  cd analysis/week1/prompting-baseline && python3 prompting_baseline.py
 """
 
 raise SystemExit(
-    "prompting_baseline.py lives in Capstone-iPe/analysis (docs/prompting_baseline.py). "
-    "Week 1-II is not part of the copilot agent loop."
+    "prompting_baseline.py lives in Capstone-iPe/analysis "
+    "(week1/prompting-baseline/). Week 1-II is not part of the copilot agent loop."
 )
