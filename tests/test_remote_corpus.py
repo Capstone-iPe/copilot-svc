@@ -39,7 +39,7 @@ def test_search_sends_bearer(monkeypatch):
                 "hits": [
                     {
                         "document_id": "ONB-POL-001",
-                        "path": "documents/policy/ONB-POL-001.md",
+                        "path": "corpus/policy/ONB-POL-001.md",
                         "folder": "policy",
                         "text": "bank proof",
                         "search_text": "ONB-POL-001\nbank proof",
