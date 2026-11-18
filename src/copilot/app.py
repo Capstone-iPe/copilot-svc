@@ -16,21 +16,24 @@ Pills are minimal (upload / submit only). Suggestion chips stay off.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from copilot.adapters.web import WebAdapter, new_message
 from copilot.session import Session
 
 SessionFactory = Callable[[str], Awaitable[tuple[Session, dict]]]
 
+log = logging.getLogger("copilot")
 app = FastAPI(title="iPe copilot", version="0.1.0")
 adapter = WebAdapter()
 _start: SessionFactory | None = None
+
 
 
 @dataclass
@@ -99,7 +102,7 @@ def _error(status: int, code: str, message: str) -> JSONResponse:
 
 
 @app.exception_handler(HTTPException)
-async def _http_error(_request, exc: HTTPException):
+async def _http_error(_request: Request, exc: HTTPException):
     detail = exc.detail
     if isinstance(detail, dict) and "code" in detail:
         return JSONResponse({"error": detail}, status_code=exc.status_code)
@@ -107,6 +110,55 @@ async def _http_error(_request, exc: HTTPException):
         {"error": {"code": "bad_request", "message": str(detail)}},
         status_code=exc.status_code,
     )
+
+
+@app.exception_handler(Exception)
+async def _any_error(_request: Request, exc: Exception):
+    log.exception("unhandled error")
+    return JSONResponse(
+        {"error": {"code": "bad_request", "message": "Something went wrong opening the chat."}},
+        status_code=500,
+    )
+
+
+def _exc_text(exc: BaseException) -> str:
+    parts = [str(exc)]
+    if isinstance(exc, BaseExceptionGroup):
+        for nested in exc.exceptions:
+            parts.append(_exc_text(nested))
+    cause = exc.__cause__ or exc.__context__
+    if isinstance(cause, BaseException):
+        parts.append(_exc_text(cause))
+    return " ".join(parts)
+
+
+def _onb_http_error(exc: BaseException) -> HTTPException:
+    text = _exc_text(exc).lower()
+    if any(token in text for token in ("401", "unauthorized", "invalid_token", "forbidden", "not allowed")):
+        return HTTPException(
+            status_code=401,
+            detail={
+                "code": "unauthorized",
+                "message": (
+                    "ONB rejected the Google token. Use Google sign-in, and on onb-k8ud set "
+                    "GOOGLE_ALLOWED_AUDIENCES to the web app's GOOGLE_CLIENT_ID if it differs."
+                ),
+            },
+        )
+    return HTTPException(
+        status_code=502,
+        detail={"code": "onb_unavailable", "message": "Could not open a live ONB session."},
+    )
+
+
+async def _open_session(bearer: str) -> tuple[Session, dict]:
+    assert _start is not None
+    try:
+        return await _start(bearer)
+    except Exception as exc:
+        raise _onb_http_error(exc) from exc
+
+
 
 
 def _view(conv: Conversation) -> dict:
@@ -188,12 +240,12 @@ async def open_conversation(
         raise HTTPException(status_code=500, detail={"code": "bad_request", "message": "start_not_configured"})
     merchant_id = _merchant(x_merchant_id)
     bearer = _bearer(authorization)
-    session, step = await _start(bearer)
+    session, step = await _open_session(bearer)
     cid = str(step.get("application_id") or "")
     if not cid or step.get("error"):
         raise HTTPException(
             status_code=502,
-            detail={"code": "bad_request", "message": str(step.get("error") or "no_conversation")},
+            detail={"code": "onb_unavailable", "message": str(step.get("error") or "no_conversation")},
         )
     opened = adapter.open(step)
     conv = Conversation(id=cid, merchant_id=merchant_id, session=session)
@@ -258,7 +310,10 @@ async def send_message(
         shown = line
     if not line:
         raise HTTPException(status_code=400, detail={"code": "empty_message", "message": "Type a message."})
-    reply = await conv.session.turn(line)
+    try:
+        reply = await conv.session.turn(line)
+    except Exception as exc:
+        raise _onb_http_error(exc) from exc
     rendered = adapter.render(reply, line=line)
     reply_msg = _apply_turn(conv, rendered, merchant_text=shown)
     return {"conversation": _view(conv), "reply": reply_msg}
@@ -287,7 +342,10 @@ async def send_file(
             detail={"code": "unsupported_type", "message": "Only PDF, JPG and PNG files are accepted."},
         )
     # ONB currently stores a file name; bytes are not forwarded yet.
-    reply = await conv.session.turn(name)
+    try:
+        reply = await conv.session.turn(name)
+    except Exception as exc:
+        raise _onb_http_error(exc) from exc
     rendered = adapter.render(reply, line=name)
     reply_msg = _apply_turn(
         conv,
