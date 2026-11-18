@@ -1,27 +1,13 @@
 #!/usr/bin/env bash
 # Interactive chat against the copilot HTTP API (same feel as python -m copilot.cli).
 #
-# Default: COPILOT_BASE_URL from the environment or copilot-svc/.env (Render).
-# Local override:
+# Default: Render FastAPI. Local override:
 #   ./scripts/http-cli.sh http://127.0.0.1:8080
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-if [[ -f "$ROOT/.env" ]]; then
-  set -a
-  # shellcheck disable=SC1091
-  source "$ROOT/.env"
-  set +a
-fi
-
-BASE="${1:-${COPILOT_BASE_URL:-${BASE:-}}}"
+BASE="${1:-${COPILOT_BASE_URL:-https://copilot-api-seyt.onrender.com}}"
 BASE="${BASE%/}"
-if [[ -z "$BASE" ]]; then
-  echo "Set COPILOT_BASE_URL to the Render copilot URL (or pass it as \$1)." >&2
-  echo "Example local: ./scripts/http-cli.sh http://127.0.0.1:8080" >&2
-  exit 1
-fi
 
 if ! command -v curl >/dev/null || ! command -v python3 >/dev/null; then
   echo "Need curl and python3." >&2

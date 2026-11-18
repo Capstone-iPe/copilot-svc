@@ -4,3 +4,6 @@ index/
 .idea/
 .env
 *.crt
+
+# Keep deploy CA for Render (host CA, not a private key).
+!deploy/*.crt
