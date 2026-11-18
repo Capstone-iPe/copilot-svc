@@ -5,13 +5,17 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-_ONB = Path(__file__).resolve().parents[2] / "onb-svc" / "src"
-if str(_ONB) not in sys.path:
-    sys.path.insert(0, str(_ONB))
+try:
+    from onb.intake.cases import ask, get_review, save_answer, save_file, submit
+    from onb.store.memory_application_store import MemoryApplicationStore
+except ModuleNotFoundError:
+    _ONB = Path(__file__).resolve().parents[2] / "onb-svc" / "src"
+    if str(_ONB) not in sys.path:
+        sys.path.insert(0, str(_ONB))
+    from onb.intake.cases import ask, get_review, save_answer, save_file, submit
+    from onb.store.memory_application_store import MemoryApplicationStore
 
 from copilot.onb.onb_tools import OnbTools
-from onb.intake.cases import ask, get_review, save_answer, save_file, submit
-from onb.store.memory_application_store import MemoryApplicationStore
 
 
 class MemoryOnb(OnbTools):

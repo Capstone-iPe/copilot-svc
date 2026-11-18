@@ -1,0 +1,31 @@
+# Capstone-iPe/copilot-svc FastAPI. Secrets stay sync: false.
+# Upload Secret File vm06-ca.crt (Render mounts it at /etc/secrets/vm06-ca.crt).
+
+services:
+  - type: web
+    name: copilot-svc
+    runtime: python
+    plan: free
+    region: oregon
+    branch: main
+    autoDeploy: true
+    buildCommand: >
+      pip install -r requirements.txt
+      && pip install "onb @ git+https://github.com/Capstone-iPe/onb-svc.git"
+    startCommand: PYTHONPATH=src:replay python -m copilot
+    healthCheckPath: /v1/health
+    envVars:
+      - key: CHAT_BASE_URL
+        value: https://103.42.50.41:1032/v1
+      - key: CHAT_CA_CERT
+        value: /etc/secrets/vm06-ca.crt
+      - key: CHAT_MODEL
+        value: Qwen/Qwen3-8B
+      - key: CORPUS_SEARCH_URL
+        value: https://onb-corpus.onrender.com
+      - key: ONB_MCP_URL
+        value: https://onb-k8ud.onrender.com/mcp
+      - key: CHAT_API_KEY
+        sync: false
+      - key: CORPUS_API_KEY
+        sync: false
