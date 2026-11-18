@@ -99,14 +99,16 @@ USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
 
 Every conversation / message / file call needs `Authorization: Bearer <Google access token>`.
-The FE refreshes Google; copilot only forwards that token to ONB.
+The FE refreshes Google; this service only forwards that token to ONB.
 
 Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com)
 
+Smoke as the FE from [copilot-web-app](https://github.com/Capstone-iPe/copilot-web-app):
+
 ```bash
-# Smoke against Render (token from FE / Google; not refreshed by this service)
-COPILOT_BEARER=ya29... ./scripts/http-cli.sh
+./scripts/http-cli.sh
 ```
+
 
 
 ## Tests
