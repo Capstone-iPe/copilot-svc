@@ -10,6 +10,7 @@ import uuid
 
 from copilot.adapters.base import Adapter
 from copilot.reply import Reply
+from copilot.say.greeting import opening_text
 from copilot.say.questions import answers, prompt_for
 from copilot.say.redact import redact
 
@@ -31,10 +32,10 @@ ITEM = {
 
 
 class WebAdapter(Adapter):
-    def open(self, step: dict) -> dict:
+    def open(self, step: dict, *, merchant_name: str | None = None) -> dict:
         """First assistant line + empty history shell. App wraps into ConversationView."""
         asking = asking_for(step)
-        text = prompt_for(step)
+        text = opening_text(prompt_for(step), merchant_name)
         now = _now()
         messages = [_message("assistant", text, now)] if text else []
         return {

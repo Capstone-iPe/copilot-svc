@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from copilot.adapters.web import WebAdapter, new_message
+from copilot.identity import merchant_call_name
 from copilot.session import Session
 
 SessionFactory = Callable[[str], Awaitable[tuple[Session, dict]]]
@@ -268,7 +269,7 @@ async def open_conversation(
             status_code=502,
             detail={"code": "onb_unavailable", "message": str(step.get("error") or "no_conversation")},
         )
-    opened = adapter.open(step)
+    opened = adapter.open(step, merchant_name=merchant_call_name(bearer))
     conv = Conversation(id=cid, merchant_id=merchant_id, session=session)
     _apply_open(conv, opened)
     conversations[cid] = conv
