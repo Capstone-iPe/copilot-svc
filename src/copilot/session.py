@@ -42,14 +42,16 @@ class Session:
         trace = {"stage": stage(pending, held), "intent": intent, "source": source, "action": action["action"]}
         reply, written, step = await self._answer(line, pending, snapshot, verdict, action, trace)
         trace["reply"] = written
-        log.info("trace %s", json.dumps(trace))
+        log.debug("trace %s", json.dumps(trace))
         self.step = step
         return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
 
     async def _answer(self, line, pending, snapshot, verdict, action, trace):
         kind = action["action"]
         if kind == "why":
-            reply, written = why_reply(line, pending, self.corpus, self.chat.complete)
+            reply, written = why_reply(
+                line, pending, self.corpus, self.chat.complete, mode=str(action.get("mode") or "plain")
+            )
             return reply, written, self.step
         if kind == "refuse":
             trace["reason"] = action["reason"]

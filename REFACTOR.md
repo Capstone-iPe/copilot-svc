@@ -191,15 +191,15 @@ Each step ends with all tests green.
 | 3. Move the MCP and sign-in code and the chat call | Done. |
 | 4. Move the corpus code. Split chunking from search | Done. |
 | 5. Move intent, action, and reply code. `Session.turn` | Done. |
-| 6. `replay/run.py`. Run G-001 to G-050 | Script written. Not run. |
-| 7. `questions.txt`, `retrieval.txt`, full-turn `adversarial` | Adversarial lines written. The other two not started. |
-| 8. Simplify the why path if the set allows it | Not started. |
-| 9. Run the holdout once. Record the result here | Not run. |
+| 6. `replay/run.py`. Run G-001 to G-050 | **50/50 pass** — `docs/results/replay-build.txt` |
+| 7. `questions.txt`, `retrieval.txt`, full-turn `adversarial` | Files + runners landed. Retrieval hit@4/@8 = 1.0 |
+| 8. Simplify the why path if the set allows it | `why` vs `ask` intents; `asks_more_than_why` removed |
+| 9. Run the holdout once. Record the result here | See `docs/results/replay-holdout.txt` and `docs/eval.md` |
 | 10. Delete the old script, `.ours.py`, and `.b64` files | Done. |
 
-Next, in this order: lint and types, `Session` typed, then the replay with the key, then search recall.
+Evidence write-up: [docs/eval.md](docs/eval.md).
 
-Holdout result: not run.
+Holdout result: **21/21 pass** (`docs/results/replay-holdout.txt`).
 
 ## 8. Decisions
 

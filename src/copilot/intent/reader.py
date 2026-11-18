@@ -14,7 +14,9 @@ _OTHER_SHOP = re.compile(
     r"\b(?:another|other|different)\s+shop\b|\bacross the street\b|\bstatus of\b",
     re.I,
 )
-_PLAIN_FIELDS = {"shop_name", "city", "business_type", "payment_methods", "stores_payer_phones"}
+# Free text. Constrained fields are settled the same way, then checked in decide.
+_PLAIN_FIELDS = {"shop_name", "city"}
+_CLOSED_FIELDS = {"business_type", "payment_methods", "stores_payer_phones"}
 
 
 def read_intent(line: str, pending: dict | None, held: bool, complete) -> tuple[str, str]:
@@ -34,19 +36,22 @@ def read_intent(line: str, pending: dict | None, held: bool, complete) -> tuple[
 
 
 def _settled(line: str, pending: dict | None) -> tuple[str, str] | None:
-    """A plain reply is stored. A question is not. A bare figure is the volume."""
+    """A plain reply is stored. Questions fall through to the classifier."""
     if pending and pending.get("kind") == "upload" and not FILE_NAME.search(line) and _ATTACHED.search(line):
         return "upload", "command"
     if _field(pending, "note"):
-        return ("why", "note") if line.strip().endswith("?") else ("answer", "note")
+        if line.strip().endswith("?"):
+            return None
+        return "answer", "note"
     if _field(pending, "monthly_volume") and VOLUME.fullmatch(line.strip()):
         return "answer", "volume"
-    if pending and pending.get("kind") == "field" and pending.get("name") in _PLAIN_FIELDS:
+    name = pending.get("name") if pending and pending.get("kind") == "field" else None
+    if name in _PLAIN_FIELDS | _CLOSED_FIELDS:
         if _OTHER_SHOP.search(line):
             return "other_shop", "field"
         if line.strip().endswith("?"):
-            return "why", "field"
-        return "answer", "field"
+            return None
+        return "answer", "closed" if name in _CLOSED_FIELDS else "field"
     return None
 
 

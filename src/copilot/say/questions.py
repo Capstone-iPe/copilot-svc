@@ -8,9 +8,12 @@ from copilot.words import SLOT_WORDS
 QUESTIONS = {
     "shop_name": "What is the shop's legal name?",
     "city": "Which city is the shop in?",
-    "business_type": "What kind of shop is it?",
+    "business_type": (
+        "What kind of shop is it? Restaurant, grocery, and retail are permitted; "
+        "cafe or kirana are fine. Name the type clearly."
+    ),
     "monthly_volume": "What is the expected monthly volume, in rupees? Use digits, such as ₹12,00,000.",
-    "payment_methods": "Which payment methods will the shop take?",
+    "payment_methods": "Which payment methods will the shop take? For example UPI, cards, cash, or wallet.",
     "stores_payer_phones": "Will the shop store payer phone numbers? Yes or no.",
     "note": "Any note to add? You can say no note.",
 }

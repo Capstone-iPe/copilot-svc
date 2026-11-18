@@ -19,10 +19,20 @@ def file_sentence(slot: str, facts: dict) -> str:
     return f"The {words} was not accepted{because}. The same slot stays open. ONB-POL-001 §2."
 
 
+_ONB_ERRORS = {
+    "phones_not_yes_or_no": "Please answer yes or no.",
+    "volume_unreadable": "Please give the monthly volume in digits, such as ₹12,00,000 or 12 lakh.",
+    "empty_answer": "That answer was empty, so it was not stored.",
+}
+
+
 def result_reply(action: dict, results: list[dict], answers: dict) -> tuple[str, dict | None]:
     """The fixed reply for a tool result, and the verdict when ONB returned one."""
     errors = [str(result["error"]) for result in results if result.get("error")]
     if errors:
+        known = [_ONB_ERRORS[code] for code in errors if code in _ONB_ERRORS]
+        if known:
+            return " ".join(known), None
         head = "The application was not submitted" if action["action"] == "submit" else "That was not stored"
         return f"{head} ({'; '.join(errors)}).", None
     parts = _parts(action, results)

@@ -49,10 +49,8 @@ async def _talk(onb: McpOnb, corpus: Passages) -> None:
                 print(again["prompt"])
             continue
         out = adapter.render(await session.turn(line), line=line)
-        if out["text"]:
-            print(out["text"])
-        if out["prompt"]:
-            print(out["prompt"])
+        for message in out.get("messages") or []:
+            print(message)
 
 
 def _read() -> str | None:
@@ -63,7 +61,9 @@ def _read() -> str | None:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stderr)
+    logging.basicConfig(level=logging.WARNING, format="%(message)s", stream=sys.stderr)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     parser = argparse.ArgumentParser(description="Talk to ONB as the copilot.")
     parser.add_argument("--mcp", default=mcp_url())
     args = parser.parse_args()

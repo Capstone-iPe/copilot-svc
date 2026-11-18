@@ -14,9 +14,11 @@ from copilot.words import ASSIGNEE_WORDS
 
 class WebAdapter(Adapter):
     def open(self, step: dict) -> dict:
+        prompt = prompt_for(step)
         return {
-            "text": prompt_for(step),
-            "prompt": prompt_for(step),
+            "text": prompt,
+            "prompt": prompt,
+            "messages": [prompt] if prompt else [],
             "asking": _asking(step),
             "card": None,
             "application_id": step.get("application_id"),
@@ -25,10 +27,16 @@ class WebAdapter(Adapter):
     def render(self, reply: Reply, *, line: str = "") -> dict:
         text = redact(reply.text, line) if reply.text else ""
         prompt = reply.prompt or ""
-        shown = f"{text} {prompt}".strip() if text and prompt and prompt not in text else (text or prompt)
+        messages = []
+        if text.strip():
+            messages.append(text.strip())
+        if prompt.strip() and prompt.strip() not in messages:
+            messages.append(prompt.strip())
+        shown = " ".join(messages)
         return {
             "text": shown,
             "prompt": prompt,
+            "messages": messages,
             "asking": _asking(reply.step),
             "card": _card(reply.step),
             "application_id": reply.step.get("application_id"),

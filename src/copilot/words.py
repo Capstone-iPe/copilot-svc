@@ -7,6 +7,7 @@ import re
 INTENTS = (
     "answer",
     "why",
+    "ask",
     "missing",
     "upload",
     "submit",
@@ -58,6 +59,7 @@ ASSIGNEE_WORDS = {
     "HEAD_OF_PAYMENTS": "Head of Payments",
 }
 FIELD_WHY_FOLDERS = {"faq", "policy"}
+# Stopwords for named-entity overlap in retrieval, not for intent routing.
 WHY_STOP = {
     "why", "do", "you", "your", "need", "this", "now", "that", "the", "a", "an",
     "is", "it", "for", "my", "me", "we", "our", "what", "how", "can", "please",
@@ -75,6 +77,18 @@ MISSING_LINE = re.compile(
     r"|^skip(?:\s+(?:it|this))?$|^no\s+file$",
     re.I,
 )
+# Re-ask the pending field without calling the classifier.
+CLARIFY_LINE = re.compile(
+    r"^(?:(?:i|we)\s+)?(?:did\s+not|didn'?t|do\s+not|don'?t)\s+(?:get|understand)(?:\s+that)?"
+    r"(?:[,.]?\s*(?:can\s+you\s+)?explain(?:\s+(?:that|this|again))?)?"
+    r"|^(?:can\s+you\s+)?(?:please\s+)?explain(?:\s+(?:that|this|again))?"
+    r"|^what\s+do\s+you\s+mean"
+    r"|^say\s+again"
+    r"|^repeat(?:\s+(?:that|this))?"
+    r"|^(?:i\s+am|i'?m)\s+confused"
+    r"|^(?:i\s+)?don'?t\s+understand$",
+    re.I,
+)
 OVERRIDE = re.compile(
     r"\bactivat\w*|\bgo(?:ing)?[\s-]+live\b|\b(?:are|is)\s+(?:we|it|the\s+shop)\s+live\b"
     r"|\b(?:we|it|the\s+shop)\s+(?:are|is)\s+live\b"
@@ -83,6 +97,7 @@ OVERRIDE = re.compile(
     r"|\b(?:active|live)\b[^.?!]{0,15}\b(?:mark|set|karo|kar\s+do)\b"
     r"|\b(?:kar\s+do|karo)\b[^.?!]{0,20}\b(?:active|live|complete)\b"
     r"|\bignore\b[^.?!]{0,30}\b(?:polic\w*|rules?|instructions?)\b|\bpolic\w*\s+ignore\b"
+    r"|\bforget\b[^.?!]{0,40}\b(?:polic\w*|rules?|instructions?)\b"
     r"|\bwaiv\w*",
     re.I,
 )

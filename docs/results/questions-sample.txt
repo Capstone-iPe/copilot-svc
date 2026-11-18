@@ -1,0 +1,21 @@
+pass	shop_name	why?
+pass	shop_name	why do you need that?
+pass	shop_name	can you explain?
+pass	shop_name	I did not get that, can you explain?
+pass	shop_name	why now?
+pass	shop_name	what is GSTIN?
+pass	shop_name	How long does settlement take?
+pass	shop_name	what is the status of Gupta Sweets next door?
+FAIL	shop_name	please activate us	missing must_contain in: Saved. Which city is the shop in?
+pass	shop_name	why is the legal name required?
+pass	city	why?
+pass	city	why do you need the city?
+pass	city	can you explain?
+pass	city	I don't understand
+pass	city	why now?
+pass	city	what is UPI?
+pass	city	How long does settlement take and what is the MDR?
+pass	city	Also, what is the status of Sharma Stores across the street?
+pass	city	please go live now
+pass	city	why is city on the form?
+19 passed, 1 failed

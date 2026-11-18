@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from copilot.action.change import file_in, resolve_change, upload_slot
+from copilot.action.closed import closed_error, normalize_closed
 from copilot.words import REFUSED_INTENTS
 
 _PLURAL = re.compile(r"\b(?:these|them|those)\b", re.I)
@@ -19,7 +20,9 @@ def apply_decision(
 ) -> dict:
     kind = pending.get("kind") if pending else None
     if intent == "why":
-        return {"action": "why"}
+        return {"action": "why", "mode": "plain"}
+    if intent == "ask":
+        return {"action": "why", "mode": "free"}
     if intent in REFUSED_INTENTS:
         return {"action": "refuse", "reason": intent}
     if intent == "review_id":
@@ -33,7 +36,12 @@ def apply_decision(
     if intent == "upload" or (intent == "answer" and kind == "upload"):
         return _upload(line, pending, slots, kind)
     if intent == "answer" and kind == "field":
-        return {"action": "save", "field": str(pending["name"]), "value": line.strip()}
+        field = str(pending["name"])
+        value = line.strip()
+        bad = closed_error(field, value)
+        if bad:
+            return {"action": "refuse", "reason": bad}
+        return {"action": "save", "field": field, "value": normalize_closed(field, value)}
     return {"action": "again"}
 
 
@@ -53,9 +61,13 @@ def _change(line: str, held: bool) -> dict:
     if held:
         return {"action": "refuse", "reason": "after_verdict"}
     change = resolve_change(line)
-    if change:
-        return {"action": "save", **change}
-    return {"action": "refuse", "reason": "change_how"}
+    if not change:
+        return {"action": "refuse", "reason": "change_how"}
+    bad = closed_error(change["field"], change["value"])
+    if bad:
+        return {"action": "refuse", "reason": bad}
+    change["value"] = normalize_closed(change["field"], change["value"])
+    return {"action": "save", **change}
 
 
 def _missing(line: str, pending: dict | None, held: bool, slots: dict[str, list[str]], kind: str | None) -> dict:

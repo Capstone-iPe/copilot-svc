@@ -1,10 +1,17 @@
 # iPe copilot service
 
-Merchant onboarding copilot: hosted ≤8B chat, remote RAG via [onb-corpus](https://github.com/Capstone-iPe/onb-corpus), MCP client to ONB.
+Merchant onboarding copilot: hosted ≤8B chat (`Qwen/Qwen3-8B`), remote RAG via [onb-corpus](https://github.com/Capstone-iPe/onb-corpus), MCP client to [onb-svc](https://github.com/Capstone-iPe/onb-svc).
 
-The policy pack and search index live in **onb-corpus**. This service does not vendor documents or build an index.
+The policy pack and search index live in **onb-corpus**. This service does not vendor documents or build an index. Application state and the verdict live in **ONB**.
 
-## Clone
+## Clone layout
+
+```text
+Capstone-iPe/
+  copilot-svc/     # this repo
+  onb-svc/         # required for MemoryOnb replay
+ipe/               # sibling of Capstone-iPe; eval/cases + eval/README.md for replay
+```
 
 ```bash
 git clone https://github.com/Capstone-iPe/copilot-svc.git
@@ -15,17 +22,20 @@ cd copilot-svc
 
 ```bash
 cp .env.example .env
-# fill CHAT_API_KEY and CORPUS_API_KEY (same secret as onb-corpus)
+# fill CHAT_API_KEY and CORPUS_API_KEY
 ```
 
-Place `vm06-ca.crt` next to the repo (or set an absolute `CHAT_CA_CERT`). `.env` and `*.crt` are gitignored.
+Place `vm06-ca.crt` at the repo root (or set an absolute `CHAT_CA_CERT`). `.env` and local secrets stay gitignored.
 
 | Variable | Purpose |
 |---|---|
-| `CHAT_*` | Hosted chat completions |
-| `ONB_MCP_URL` | ONB MCP endpoint |
-| `CORPUS_SEARCH_URL` | onb-corpus base URL (default `http://127.0.0.1:8081`) |
-| `CORPUS_API_KEY` | Bearer token for `/v1/*` (same value as onb-corpus) |
+| `CHAT_API_KEY` | Hosted chat completions |
+| `CHAT_BASE_URL` | OpenAI-compatible base URL |
+| `CHAT_CA_CERT` | TLS CA for the chat host (default `vm06-ca.crt`) |
+| `CHAT_MODEL` | Default `Qwen/Qwen3-8B` |
+| `ONB_MCP_URL` | Live ONB MCP endpoint (CLI / web) |
+| `CORPUS_SEARCH_URL` | onb-corpus base URL |
+| `CORPUS_API_KEY` | Bearer for `/v1/search` (same secret as onb-corpus) |
 
 ## Setup
 
@@ -34,19 +44,54 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
 
-Run [onb-corpus](https://github.com/Capstone-iPe/onb-corpus) first (build index + `PYTHONPATH=src python -m onb_corpus serve`).
+Corpus must be reachable at `CORPUS_SEARCH_URL` (hosted onb-corpus or local `PYTHONPATH=src python -m onb_corpus serve`).
 
-## Run
+## Run the CLI
+
+Talks to live ONB over MCP (browser Google sign-in once):
 
 ```bash
-# CLI against live ONB (browser Google sign-in)
 PYTHONPATH=src .venv/bin/python -m copilot.cli
+# or: PYTHONPATH=src .venv/bin/python -m copilot.cli --mcp "$ONB_MCP_URL"
+```
 
-# Eval replay (in-process ONB; needs sibling onb-svc checkout for MemoryOnb)
-PYTHONPATH=src:replay .venv/bin/python replay/run.py
-PYTHONPATH=src:replay .venv/bin/python replay/run.py --holdout
+Type answers one field at a time. `why` / `can you explain?` re-asks with RAG. `submit` runs after the pack (and optional note). `quit` exits.
 
-# FastAPI with local memory ONB
+Closed fields: `business_type`, `payment_methods`, and `stores_payer_phones` must match the allowed sets (see `src/copilot/action/closed.py`). `shop_name` and `city` stay free text.
+
+## Eval replay (no Google sign-in)
+
+Uses in-process ONB (`replay/memory_onb.py` → sibling `onb-svc`) and gold shops from `iPe/eval`.
+
+```bash
+# Build set G-001–G-050 (gate ≥95%)
+PYTHONPATH=src:replay .venv/bin/python replay/run.py | tee docs/results/replay-build.txt
+
+# Holdout G-051–G-071 once (gate ≥90%)
+PYTHONPATH=src:replay .venv/bin/python replay/run.py --holdout | tee docs/results/replay-holdout.txt
+
+# One case
+PYTHONPATH=src:replay .venv/bin/python replay/run.py --only G-001
+```
+
+### Why / ask lines
+
+```bash
+PYTHONPATH=src:replay .venv/bin/python replay/questions_run.py | tee docs/results/questions.txt
+PYTHONPATH=src:replay .venv/bin/python replay/questions_run.py --only-field city --limit 5
+```
+
+### Retrieval recall
+
+```bash
+PYTHONPATH=src:replay .venv/bin/python replay/retrieval_run.py | tee docs/results/retrieval.txt
+```
+
+Scores, failure taxonomy, and trace schema: [docs/eval.md](docs/eval.md).
+
+## FastAPI (memory ONB)
+
+```bash
 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
 
@@ -55,3 +100,11 @@ PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
+
+## Architecture (short)
+
+1. Guard / command / closed-field settle / classifier → one intent  
+2. Decide → at most one ONB tool  
+3. Say: fixed template, or RAG + model for `why` / `ask`, then critic  
+
+ONB tools: `next_step`, `save_answer`, `save_file`, `submit`, `get_review`. No activate / waive / mark-complete.

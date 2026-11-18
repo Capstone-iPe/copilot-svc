@@ -1,4 +1,4 @@
-"""Plain why, and a question that asks for more than why."""
+"""Plain field why, and a free question (ask) that needs more than the field topic."""
 
 from __future__ import annotations
 
@@ -8,35 +8,28 @@ from copilot.explain.checker import critic, without_prompt
 from copilot.explain.fallback import passage_fallback
 from copilot.explain.passages import allowed_ids, named_words, passages_for_why, prefer_held
 from copilot.prompts import explain_prompt
-from copilot.words import DOC_ID, FIELD_TOPICS, SLOT_WORDS, WHY_STOP
+from copilot.words import DOC_ID, FIELD_TOPICS, SLOT_WORDS
+
+_PLAIN = (
+    "Answer why this field is being asked, in at most two short sentences. "
+    "Phrase the passage that says why. Do not mention a document the merchant did not name."
+)
+_FREE = (
+    "Answer the merchant's question from the passages. If the passages do not define "
+    "the word they asked about, say the onboarding policies do not state it. Then say "
+    "why this field is being asked, from the passage that says why. Do not invent a "
+    "definition. Do not mention a document the merchant did not name."
+)
 
 
-def asks_more_than_why(line: str) -> bool:
-    """True when the merchant asked something besides why this field is on screen."""
-    from copilot.corpus.text import tokens
-
-    plain = WHY_STOP | {"but", "about", "just", "then", "also", "still"}
-    return any(len(word) > 2 and word not in plain for word in tokens(line))
-
-
-def why_question(line: str, topic: str, named: set[str]) -> str:
-    if named or asks_more_than_why(line):
+def why_question(line: str, topic: str, mode: str, named: set[str]) -> str:
+    if mode == "free" or named:
         return line
     return f"Why {topic}?" if topic else line
 
 
-def why_instruction(line: str) -> str:
-    if asks_more_than_why(line):
-        return (
-            "Answer the merchant's question from the passages. If the passages do not define "
-            "the word they asked about, say the onboarding policies do not state it. Then say "
-            "why this field is being asked, from the passage that says why. Do not invent a "
-            "definition. Do not mention a document the merchant did not name."
-        )
-    return (
-        "Answer why this field is being asked, in at most two short sentences. "
-        "Phrase the passage that says why. Do not mention a document the merchant did not name."
-    )
+def why_instruction(mode: str) -> str:
+    return _FREE if mode == "free" else _PLAIN
 
 
 def explain(question, passages, instruction, in_force, complete, facts=None):
@@ -66,20 +59,43 @@ def _checked(reply, prompt, quoted, passages, facts, in_force):
     return reply if critic(reply, allowed_ids(passages, facts, in_force), known) else None
 
 
-def why_reply(line, pending, corpus, complete) -> tuple[str, str]:
+def why_reply(line, pending, corpus, complete, mode: str = "plain") -> tuple[str, str]:
     name = str(pending.get("name") or "") if pending else ""
     topic = FIELD_TOPICS.get(name) or SLOT_WORDS.get(name, "")
     query = f"why {topic}".strip() if topic else line
     field_hits = prefer_held(corpus.search(query, k=8), corpus.rows)
-    named = named_words(line, topic, field_hits)
+    named = named_words(line, topic, field_hits) if mode == "free" else set()
     named_hits = corpus.search(line, k=4) if named else []
-    passages = passages_for_why(line, topic, field_hits, named_hits)
-    answer = explain(why_question(line, topic, named), passages, why_instruction(line), corpus.document_ids, complete)
+    passages = passages_for_why(line, topic, field_hits, named_hits) if mode == "free" else _field_passages(field_hits)
+    answer = explain(
+        why_question(line, topic, mode, named),
+        passages,
+        why_instruction(mode),
+        corpus.document_ids,
+        complete,
+    )
     if answer:
         if not DOC_ID.search(answer):
             answer += f" {passages[0]['document_id']}."
         return answer, "model"
     return passage_fallback(passages), "fallback"
+
+
+def _field_passages(field_hits: list[dict]) -> list[dict]:
+    """Plain why uses only the field's own faq/policy hits."""
+    from copilot.words import FIELD_WHY_FOLDERS
+
+    kept: list[dict] = []
+    seen: set[str] = set()
+    for row in field_hits:
+        document_id = str(row.get("document_id") or "")
+        if not document_id or document_id in seen or len(kept) == 3:
+            continue
+        if (row.get("folder") or "") not in FIELD_WHY_FOLDERS:
+            continue
+        seen.add(document_id)
+        kept.append(row)
+    return kept
 
 
 def verdict_explanation(verdict: dict, corpus, complete) -> str | None:

@@ -56,7 +56,7 @@ async def call(client, name: str, arguments: dict) -> dict:
     shown = {key: value for key, value in arguments.items() if key not in {"value", "application_id"}}
     if result.get("error"):
         shown["error"] = result["error"]
-    log.info("tool %s %s", name, shown)
+    log.debug("tool %s %s", name, shown)
     return result
 
 

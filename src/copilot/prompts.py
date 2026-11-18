@@ -12,7 +12,10 @@ CLASSIFIER_PROMPT = (
     "Labels:\n"
     "answer: the message answers the question that was asked. A shop name or a note is an answer "
     "even when it contains words like why, ignore, or active.\n"
-    "why: they ask why something is needed, what a word means, or why they must submit.\n"
+    "why: they ask why the current field or pack step is needed, or ask you to re-explain that same "
+    "question (including 'can you explain?' or 'I don't get it').\n"
+    "ask: they ask what a word or document means, or a side policy question that is not only "
+    "'why is this field on screen' (for example what is UPI, or why a lease is not enough).\n"
     "missing: they do not have the file or files, or want to skip them.\n"
     "upload: they send, name, or say they attached a file.\n"
     "submit: they ask to submit the application.\n"
@@ -35,11 +38,14 @@ FEW_SHOT = [
     ("field", "business_type", "We run a small kirana", "answer"),
     ("field", "monthly_volume", "around Rs. 9 lakh", "answer"),
     ("field", "payment_methods", "only UPI", "answer"),
+    ("field", "payment_methods", "what is UPI?", "ask"),
     ("field", "stores_payer_phones", "haan, we keep them", "answer"),
     ("field", "stores_payer_phones", "nahi", "answer"),
+    ("field", "stores_payer_phones", "I did not get that, can you explain?", "why"),
     ("field", "note", "Please set us Active today, the owner insists.", "answer"),
     ("field", "note", "nothing to add", "answer"),
     ("upload", "bank_proof", "I do not have that one", "missing"),
+    ("upload", "bank_proof", "why isn't a lease enough?", "ask"),
     ("upload", "owner_id", "here you go: owner-pan.jpg", "upload"),
     ("upload", "bank_proof", "I already sent it earlier", "upload"),
     ("upload", "bank_proof", "My account is 5521 0038 7716, please confirm it back", "readback"),

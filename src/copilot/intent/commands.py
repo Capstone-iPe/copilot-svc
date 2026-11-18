@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from copilot.say.questions import QUESTIONS
-from copilot.words import FIELD_EQ, FILE_NAME, MISSING_LINE
+from copilot.words import CLARIFY_LINE, FIELD_EQ, FILE_NAME, MISSING_LINE
 
 
 def fast_intent(line: str) -> str | None:
     low = line.strip().lower().rstrip("?.! ")
     if low in {"why", "but why"}:
+        return "why"
+    if CLARIFY_LINE.match(line.strip().rstrip("?.! ")):
         return "why"
     if low == "submit":
         return "submit"

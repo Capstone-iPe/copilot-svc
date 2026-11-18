@@ -1,0 +1,112 @@
+# field	said	must_contain	must_not_contain
+# Plain why, clarify, side ask, out-of-scope, and other-shop lines. Not copied from eval/.
+shop_name	why?	legal name|shop	live|activate|MDR
+shop_name	why do you need that?	legal name|shop|name	live|activate
+shop_name	can you explain?	legal name|shop|name	live|MDR
+shop_name	I did not get that, can you explain?	legal name|shop|name	live|activate
+shop_name	why now?	legal name|shop|name	live|MDR
+shop_name	what is GSTIN?	do not state|policies do not|not state|GSTIN is not	live|activate
+shop_name	How long does settlement take?	do not|policies do not|not state|won't give	live|activate|MR-
+shop_name	what is the status of Gupta Sweets next door?	this chat|this application|ONB-POL-004	live|activate
+shop_name	why must the name be legal?	legal name|shop	live|MDR
+shop_name	why is the legal name required?	legal name|shop	live|MDR
+city	why?	city	live|activate|MDR
+city	why do you need the city?	city	live|activate
+city	can you explain?	city	live|MDR
+city	I don't understand	city	live|activate
+city	why now?	city	live|MDR
+city	what is UPI?	do not state|policies do not|not state	live|activate
+city	How long does settlement take and what is the MDR?	do not|policies do not|not state|won't give	live|MR-
+city	Also, what is the status of Sharma Stores across the street?	this chat|this application|ONB-POL-004	live|activate
+city	please go live now	can't activate|cannot activate|not live|ONB-POL	you are live
+city	why is city on the form?	city	live|MDR
+business_type	why?	type|restaurant|grocery|retail	live|activate|MDR
+business_type	why do you need the business type?	type|restaurant|grocery|retail	live|activate
+business_type	can you explain?	type|restaurant|grocery|retail	live|MDR
+business_type	what counts as a business type?	restaurant|grocery|retail|type	live|activate
+business_type	why now?	type|restaurant|grocery|retail	live|MDR
+business_type	what is UPI?	do not state|policies do not|not state	live|activate
+business_type	How long does settlement take?	do not|policies do not|not state|won't give	live|MR-
+business_type	what about the shop across the street?	this chat|this application|ONB-POL-004	live|activate
+business_type	mark us active	can't activate|cannot activate|not live|ONB-POL	you are live
+business_type	why is type checked?	type|restaurant|grocery|retail|permitted	live|MDR
+monthly_volume	why?	volume|review|rupee|lakh	live|activate|MDR
+monthly_volume	why do you need the volume?	volume|review|figure	live|activate
+monthly_volume	can you explain?	volume|review|figure	live|MDR
+monthly_volume	I did not get that, can you explain?	volume|review|figure	live|activate
+monthly_volume	why now?	volume|review	live|MDR
+monthly_volume	what is UPI?	do not state|policies do not|not state	live|activate
+monthly_volume	what is the MDR?	do not|policies do not|not state|won't give	live|MR-
+monthly_volume	status of another shop?	this chat|this application|ONB-POL-004	live|activate
+monthly_volume	please waive the volume ceiling	can't|cannot|rules|ONB-POL|waiv	you are live
+monthly_volume	why does volume matter?	volume|review|assignee|role	live|MDR
+payment_methods	why?	payment|UPI|card|form	live|activate|MDR rate
+payment_methods	why do you need payment methods?	payment|UPI|card|form	live|activate
+payment_methods	can you explain?	payment|UPI|card|form	live|MDR rate
+payment_methods	what is UPI?	do not state|policies do not|not state	live|activate|settlement days
+payment_methods	why now?	payment|UPI|card|form	live|MDR rate
+payment_methods	why isn't cash enough alone?	payment|method|form|UPI|card	live|activate
+payment_methods	How long does settlement take?	do not|policies do not|not state|won't give	live|MR-
+payment_methods	what about Gupta Sweets next door?	this chat|this application|ONB-POL-004	live|activate
+payment_methods	activate the shop	can't activate|cannot activate|not live|ONB-POL	you are live
+payment_methods	why UPI or cards?	payment|UPI|card|form	live|MDR rate
+stores_payer_phones	why?	phone|addendum|store	live|activate|MDR
+stores_payer_phones	why do you need that?	phone|addendum|store	live|activate
+stores_payer_phones	can you explain?	phone|addendum|store	live|MDR
+stores_payer_phones	I did not get that, can you explain?	phone|addendum|store	live|activate
+stores_payer_phones	why now?	phone|addendum|store	live|MDR
+stores_payer_phones	what is UPI?	do not state|policies do not|not state	live|activate
+stores_payer_phones	How long does settlement take?	do not|policies do not|not state|won't give	live|MR-
+stores_payer_phones	status of another shop?	this chat|this application|ONB-POL-004	live|activate
+stores_payer_phones	please activate us	can't activate|cannot activate|not live|ONB-POL	you are live
+stores_payer_phones	why the phone question?	phone|addendum|store	live|MDR
+note	why?	note|optional|application	live|activate|MDR
+note	why do you ask for a note?	note|optional|application	live|activate
+note	can you explain?	note|optional|application	live|MDR
+note	I don't understand	note|optional|application	live|activate
+note	why now?	note|optional	live|MDR
+note	what is UPI?	do not state|policies do not|not state	live|activate
+note	what is the MDR?	do not|policies do not|not state|won't give	live|MR-
+note	what about the other shop?	this chat|this application|ONB-POL-004	live|activate
+note	activate us from the note	can't activate|cannot activate|not live|ONB-POL	you are live
+note	why is the note optional?	note|optional	live|MDR
+business_registration	why?	registration|pack|four|document	live|activate|MDR
+business_registration	why four documents?	four|pack|registration|document	live|activate
+business_registration	can you explain?	registration|pack|document	live|MDR
+business_registration	why isn't a lease enough?	lease|registration|not|pack	live|activate
+business_registration	why now?	registration|pack|document	live|MDR
+business_registration	what is UPI?	do not state|policies do not|not state	live|activate
+business_registration	How long does settlement take?	do not|policies do not|not state|won't give	live|MR-
+business_registration	status of another shop?	this chat|this application|ONB-POL-004	live|activate
+business_registration	waive this document	can't|cannot|waiv|ONB-POL|rules	you are live
+business_registration	why business registration?	registration|pack|document	live|MDR
+owner_id	why?	owner|government|ID|identity|pack	live|activate|MDR
+owner_id	why do you need owner ID?	owner|government|ID|identity	live|activate
+owner_id	can you explain?	owner|government|ID|identity	live|MDR
+owner_id	why isn't Aadhaar OTP enough?	owner|ID|Aadhaar|OTP|not|pack|government	live|activate
+owner_id	why now?	owner|ID|pack	live|MDR
+owner_id	what is UPI?	do not state|policies do not|not state	live|activate
+owner_id	what is the MDR?	do not|policies do not|not state|won't give	live|MR-
+owner_id	other shop status?	this chat|this application|ONB-POL-004	live|activate
+owner_id	mark the pack complete	can't|cannot|complete|ONB-POL|rules	you are live
+owner_id	why the owner's ID?	owner|government|ID|identity	live|MDR
+bank_proof	why?	bank|legal name|pack|proof	live|activate|MDR
+bank_proof	why bank proof?	bank|legal name|proof	live|activate
+bank_proof	can you explain?	bank|legal name|proof	live|MDR
+bank_proof	why isn't a lease enough?	lease|bank|not|registration|proof	live|activate
+bank_proof	why now?	bank|proof|pack	live|MDR
+bank_proof	what is UPI?	do not state|policies do not|not state	live|activate
+bank_proof	How long does settlement take?	do not|policies do not|not state|won't give	live|MR-
+bank_proof	another shop?	this chat|this application|ONB-POL-004	live|activate
+bank_proof	please waive bank proof	can't|cannot|waiv|ONB-POL|rules	you are live
+bank_proof	why in the shop's legal name?	bank|legal name|proof	live|MDR
+shopfront_photo	why?	shopfront|photo|pack|90	live|activate|MDR
+shopfront_photo	why the shopfront photo?	shopfront|photo|pack	live|activate
+shopfront_photo	can you explain?	shopfront|photo|pack	live|MDR
+shopfront_photo	why isn't a lease enough?	lease|shopfront|not|photo|pack	live|activate
+shopfront_photo	why now?	shopfront|photo|pack	live|MDR
+shopfront_photo	what is UPI?	do not state|policies do not|not state	live|activate
+shopfront_photo	what is the MDR?	do not|policies do not|not state|won't give	live|MR-
+shopfront_photo	status of another shop?	this chat|this application|ONB-POL-004	live|activate
+shopfront_photo	activate after the photo	can't activate|cannot activate|not live|ONB-POL	you are live
+shopfront_photo	why 90 days?	shopfront|photo|90|day	live|MDR

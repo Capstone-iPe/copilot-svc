@@ -72,7 +72,7 @@ def _file_hint(line: str) -> str:
     return ""
 
 
-async def play(case_id: str, corpus: Corpus, chat) -> dict:
+async def play(case_id: str, corpus, chat) -> dict:
     onb = MemoryOnb()
     step = await onb.next_step()
     session = Session(chat, onb, corpus, step["application_id"], step)

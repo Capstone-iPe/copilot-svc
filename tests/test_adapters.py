@@ -37,9 +37,20 @@ def test_cli_adapter_prints_text_and_prompt() -> None:
     opened = adapter.open(STEP)
     assert opened["text"] == ""
     assert "city" in opened["prompt"].lower()
+    assert opened["messages"] == [opened["prompt"]]
     out = adapter.render(_reply(text="My account is 1234 5678", prompt="Next."), line="My account is 1234 5678")
     assert "[number hidden]" in out["text"]
     assert out["prompt"] == "Next."
+    assert len(out["messages"]) == 2
+    assert out["messages"][1] == "Next."
+
+
+def test_reply_builds_two_messages() -> None:
+    reply = _reply(text="Saved.", prompt="Will the shop store payer phone numbers? Yes or no.")
+    assert reply.messages == [
+        "Saved.",
+        "Will the shop store payer phone numbers? Yes or no.",
+    ]
 
 
 def test_replay_adapter_exposes_the_checker_fields() -> None:
@@ -59,6 +70,7 @@ def test_web_adapter_carries_asking_and_a_verdict_card() -> None:
     assert opened["card"] is None
     out = adapter.render(_reply(text="A review is open.", prompt="", step=VERDICT_STEP), line="Submit")
     assert out["asking"] is None
+    assert out["messages"] == ["A review is open."]
     assert out["card"]["type"] == "verdict"
     assert out["card"]["review_id"] == "MR-2041"
     assert out["card"]["outcome"] == "IN_REVIEW"

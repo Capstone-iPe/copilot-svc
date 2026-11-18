@@ -13,6 +13,12 @@ _LINES = {
     "not_ready": "Submit comes after the last question.",
     "no_review_yet": "No review is open yet. A review opens only after you submit.",
     "change_how": "To change an answer, type the field and the new value, such as city=Pune.",
+    "bad_phones": "Please answer yes or no.",
+    "bad_business_type": (
+        "Please name the kind of shop, such as restaurant, grocery, retail, "
+        "or another clear type (cafe, kirana, salon, gym)."
+    ),
+    "bad_payment_methods": "Please name the methods, such as UPI, cards, cash, or wallet.",
 }
 
 

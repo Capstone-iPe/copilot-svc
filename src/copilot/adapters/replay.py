@@ -9,9 +9,11 @@ from copilot.say.questions import prompt_for
 
 class ReplayAdapter(Adapter):
     def open(self, step: dict) -> dict:
+        prompt = prompt_for(step)
         return {
             "text": "",
-            "prompt": prompt_for(step),
+            "prompt": prompt,
+            "messages": [prompt] if prompt else [],
             "action": "",
             "pending_name": _pending_name(step),
             "outcome": _outcome(step),
@@ -19,9 +21,15 @@ class ReplayAdapter(Adapter):
         }
 
     def render(self, reply: Reply, *, line: str = "") -> dict:
+        text = reply.text or ""
+        prompt = reply.prompt or ""
+        messages = list(reply.messages) if reply.messages else (
+            ([text] if text else []) + ([prompt] if prompt and prompt != text else [])
+        )
         return {
-            "text": reply.text or "",
-            "prompt": reply.prompt or "",
+            "text": text,
+            "prompt": prompt,
+            "messages": messages,
             "action": str(reply.trace.get("action") or ""),
             "pending_name": _pending_name(reply.step),
             "outcome": _outcome(reply.step),
