@@ -1,5 +1,5 @@
-# Capstone-iPe/copilot-svc FastAPI. Secrets stay sync: false.
-# ONB is vendored under vendor/onb (private git install is not available on Render).
+# Capstone-iPe/copilot-svc FastAPI → live ONB MCP.
+# Secrets stay sync: false.
 
 services:
   - type: web
@@ -10,7 +10,7 @@ services:
     branch: main
     autoDeploy: true
     buildCommand: pip install -r requirements.txt
-    startCommand: PYTHONPATH=src:replay:vendor python -m copilot
+    startCommand: PYTHONPATH=src python -m copilot
     healthCheckPath: /v1/health
     envVars:
       - key: CHAT_BASE_URL
@@ -26,4 +26,10 @@ services:
       - key: CHAT_API_KEY
         sync: false
       - key: CORPUS_API_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REFRESH_TOKEN
         sync: false

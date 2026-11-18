@@ -61,9 +61,9 @@ async def call(client, name: str, arguments: dict) -> dict:
 
 
 async def connect(mcp_url: str):
+    """CLI path: Google sign-in in the browser, then MCP."""
     import httpx2
     from mcp import Implementation
-    from mcp.client.auth import OAuthClientProvider
     from mcp.client.client import Client
     from mcp.client.streamable_http import streamable_http_client
 
@@ -74,6 +74,28 @@ async def connect(mcp_url: str):
     client = Client(transport, client_info=Implementation(name="ipe-copilot", version="0.0.2"))
     await client.__aenter__()
     return client, http, waiter
+
+
+async def connect_bearer(mcp_url: str, bearer_fn):
+    """Server path: live ONB with a Google access token. No browser.
+
+    bearer_fn is a zero-arg callable that returns the current access token.
+    """
+    import httpx2
+    from mcp import Implementation
+    from mcp.client.client import Client
+    from mcp.client.streamable_http import streamable_http_client
+
+    class _Bearer(httpx2.Auth):
+        def auth_flow(self, request):
+            request.headers["Authorization"] = f"Bearer {bearer_fn()}"
+            yield request
+
+    http = httpx2.AsyncClient(auth=_Bearer(), follow_redirects=False, timeout=60)
+    transport = streamable_http_client(mcp_url, http_client=http)
+    client = Client(transport, client_info=Implementation(name="ipe-copilot", version="0.0.2"))
+    await client.__aenter__()
+    return client, http
 
 
 def _auth(mcp_url: str, redirect_uri: str, waiter: Wait):

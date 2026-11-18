@@ -89,11 +89,17 @@ PYTHONPATH=src:replay .venv/bin/python replay/retrieval_run.py | tee docs/result
 
 Scores, failure taxonomy, and trace schema: [docs/eval.md](docs/eval.md).
 
-## FastAPI (memory ONB)
+## FastAPI (live ONB MCP)
 
 ```bash
-PYTHONPATH=src:replay .venv/bin/python -m copilot
+# Needs ONB_MCP_BEARER, or GOOGLE_REFRESH_TOKEN + GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
+PYTHONPATH=src .venv/bin/python -m copilot
+
+# Laptop-only in-process ONB (sibling onb-svc checkout):
+USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
+
+Render: [https://copilot-api-seyt.onrender.com](https://copilot-api-seyt.onrender.com) — same Google OAuth app as ONB, plus a refresh token for an allowed email.
 
 ## Tests
 
