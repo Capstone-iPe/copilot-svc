@@ -115,3 +115,22 @@ def test_onb_generic_mcp_4xx_is_401() -> None:
     r = client.post("/v1/conversations", headers=AUTH)
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "unauthorized"
+
+
+def test_corpus_failure_is_corpus_unavailable() -> None:
+    from copilot.session import Session
+
+    class BoomSession(Session):
+        async def turn(self, line: str):
+            raise RuntimeError("corpus POST /v1/search failed HTTP 502: <html>")
+
+    async def start(bearer: str):
+        session, step = await _start(bearer)
+        return BoomSession(session.chat, session.onb, session.corpus, session.application_id, step), step
+
+    client = TestClient(create_app(start))
+    opened = client.post("/v1/conversations", headers=AUTH)
+    cid = opened.json()["conversation"]["id"]
+    r = client.post(f"/v1/conversations/{cid}/messages", headers=AUTH, json={"text": "Why?"})
+    assert r.status_code == 502
+    assert r.json()["error"]["code"] == "corpus_unavailable"

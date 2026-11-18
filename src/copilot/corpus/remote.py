@@ -4,12 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import urllib.error
 import urllib.request
 
 from copilot.config import corpus_api_key, corpus_search_url
 
 log = logging.getLogger("copilot")
+
+# Free Render services return HTML 502 while waking; retry a few times.
+_RETRY_STATUSES = {502, 503, 504}
+_RETRY_DELAYS = (0, 3, 8, 15)
 
 
 class RemoteCorpus:
@@ -49,21 +54,28 @@ class RemoteCorpus:
 
     def _request(self, method: str, path: str, body: dict | None = None) -> dict:
         data = None if body is None else json.dumps(body).encode()
-        request = urllib.request.Request(
-            f"{self.base_url}{path}",
-            data=data,
-            method=method,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Accept": "application/json",
-                **({"Content-Type": "application/json"} if data is not None else {}),
-            },
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=60) as response:
-                return json.load(response)
-        except urllib.error.HTTPError as exc:
-            detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"corpus {method} {path} failed HTTP {exc.code}: {detail}") from exc
-        except urllib.error.URLError as exc:
-            raise RuntimeError(f"corpus {method} {path} failed: {exc}") from exc
+        url = f"{self.base_url}{path}"
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Accept": "application/json",
+            **({"Content-Type": "application/json"} if data is not None else {}),
+        }
+        last_error: Exception | None = None
+        for delay in _RETRY_DELAYS:
+            if delay:
+                time.sleep(delay)
+            request = urllib.request.Request(url, data=data, method=method, headers=headers)
+            try:
+                with urllib.request.urlopen(request, timeout=90) as response:
+                    return json.load(response)
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")
+                last_error = RuntimeError(f"corpus {method} {path} failed HTTP {exc.code}: {detail}")
+                if exc.code not in _RETRY_STATUSES:
+                    raise last_error from exc
+                log.info("corpus %s %s HTTP %s; retrying", method, path, exc.code)
+            except urllib.error.URLError as exc:
+                last_error = RuntimeError(f"corpus {method} {path} failed: {exc}")
+                log.info("corpus %s %s URL error; retrying", method, path)
+        assert last_error is not None
+        raise last_error

@@ -79,3 +79,21 @@ def test_http_401(monkeypatch):
     corpus = RemoteCorpus("http://corpus.test", "bad")
     with pytest.raises(RuntimeError, match="401"):
         corpus.search("why")
+
+
+def test_http_502_retries_then_succeeds(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_urlopen(request, timeout=90):
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise urllib.error.HTTPError(
+                request.full_url, 502, "Bad Gateway", hdrs=None, fp=BytesIO(b"<html>wake</html>")
+            )
+        return _Resp({"hits": [{"document_id": "ONB-POL-001", "text": "x", "folder": "policy"}]})
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("copilot.corpus.remote.time.sleep", lambda _s: None)
+    hits = RemoteCorpus("http://corpus.test", "secret-key").search("why")
+    assert calls["n"] == 3
+    assert hits[0]["document_id"] == "ONB-POL-001"

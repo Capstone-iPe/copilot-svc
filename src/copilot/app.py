@@ -162,6 +162,18 @@ def _onb_http_error(exc: BaseException, *, opening: bool = False) -> HTTPExcepti
     short = _exc_text(exc).strip().replace("\n", " ")
     if len(short) > 180:
         short = short[:177] + "..."
+    if "corpus" in text:
+        return HTTPException(
+            status_code=502,
+            detail={
+                "code": "corpus_unavailable",
+                "message": (
+                    f"Policy search is unavailable. ({short})"
+                    if short
+                    else "Policy search is unavailable."
+                ),
+            },
+        )
     head = "Could not open a live ONB session." if opening else "The live ONB call failed."
     return HTTPException(
         status_code=502,
