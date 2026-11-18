@@ -68,11 +68,12 @@ def test_web_adapter_carries_asking_and_a_result_card() -> None:
     assert opened["asking"] == "city"
     assert opened["prompt"]["field"] == "city"
     assert opened["prompt"]["pills"] == []
-    assert opened["messages"]
+    assert len(opened["messages"]) == 2
     assert opened["messages"][0]["text"].startswith("Welcome to iPe.")
-    assert "city" in opened["messages"][0]["text"].lower()
+    assert "city" in opened["messages"][1]["text"].lower()
     named = adapter.open(STEP, merchant_name="Rupesh")
     assert named["messages"][0]["text"].startswith("Hi Rupesh, welcome to iPe.")
+    assert named["messages"][1]["text"] == opened["messages"][1]["text"]
     out = adapter.render(_reply(text="A review is open.", prompt="", step=VERDICT_STEP), line="Submit")
     assert out["asking"] is None
     assert out["assistant_texts"] == ["A review is open."]

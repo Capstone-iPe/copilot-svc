@@ -70,9 +70,9 @@ def test_health_and_one_turn() -> None:
     assert conv["id"] == APP_ID
     assert conv["prompt"]["field"] == "shop_name"
     assert conv["prompt"]["pills"] == []
-    assert conv["messages"]
+    assert len(conv["messages"]) == 2
     assert "Welcome to iPe" in conv["messages"][0]["text"]
-    assert "shop" in conv["messages"][0]["text"].lower()
+    assert "shop" in conv["messages"][1]["text"].lower()
     turned = client.post(
         f"/v1/conversations/{conv['id']}/messages",
         headers=AUTH,
