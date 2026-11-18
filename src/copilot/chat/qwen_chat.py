@@ -59,6 +59,13 @@ def _no_think(messages: list[dict], model: str) -> list[dict]:
     return [*messages[:-1], last]
 
 
+def _ssl_context() -> ssl.SSLContext:
+    ca = chat_ca_cert()
+    if not ca.is_file():
+        raise FileNotFoundError(f"CHAT_CA_CERT not found: {ca}")
+    return ssl.create_default_context(cafile=str(ca))
+
+
 def _post(base: str, key: str, body: dict):
     request = urllib.request.Request(
         f"{base}/chat/completions",
@@ -66,7 +73,11 @@ def _post(base: str, key: str, body: dict):
         headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         method="POST",
     )
-    context = ssl.create_default_context(cafile=str(chat_ca_cert()))
+    try:
+        context = _ssl_context()
+    except OSError as exc:
+        log.info("chat ca cert missing (%s)", exc)
+        return None
     for delay in (0, 2, 4, 8):
         if delay:
             time.sleep(delay)
