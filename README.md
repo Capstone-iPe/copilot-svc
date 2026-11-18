@@ -98,16 +98,17 @@ PYTHONPATH=src .venv/bin/python -m copilot
 USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
 
-Every conversation / message / file call needs `Authorization: Bearer <Google access token>`.
-The FE refreshes Google; this service only forwards that token to ONB.
+HTTP shape matches the web-app chat contract (`ConversationView`, list/load, multipart files).
+Pills are upload/submit only — no suggestion chips. The FE refreshes Google; this service forwards the bearer to ONB.
 
 Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com)
 
-Smoke as the FE from [copilot-web-app](https://github.com/Capstone-iPe/copilot-web-app):
+In copilot-web-app `.env`:
 
-```bash
-./scripts/http-cli.sh
 ```
+CHAT_SERVICE_URL=https://copilot-svc.onrender.com
+```
+
 
 
 

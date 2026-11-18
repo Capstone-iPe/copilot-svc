@@ -62,15 +62,18 @@ def test_replay_adapter_exposes_the_checker_fields() -> None:
     assert out["pending_name"] is None
 
 
-def test_web_adapter_carries_asking_and_a_verdict_card() -> None:
+def test_web_adapter_carries_asking_and_a_result_card() -> None:
     adapter = WebAdapter()
     opened = adapter.open(STEP)
     assert opened["asking"] == "city"
-    assert opened["application_id"] == "app_1"
-    assert opened["card"] is None
+    assert opened["prompt"]["field"] == "city"
+    assert opened["prompt"]["pills"] == []
+    assert opened["messages"]
     out = adapter.render(_reply(text="A review is open.", prompt="", step=VERDICT_STEP), line="Submit")
     assert out["asking"] is None
-    assert out["messages"] == ["A review is open."]
-    assert out["card"]["type"] == "verdict"
+    assert out["assistant_texts"] == ["A review is open."]
+    assert out["card"]["type"] == "result"
     assert out["card"]["review_id"] == "MR-2041"
     assert out["card"]["outcome"] == "IN_REVIEW"
+    assert out["result"]["assignee"] == "MERCHANT_RISK_LEAD"
+
