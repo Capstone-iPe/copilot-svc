@@ -93,3 +93,23 @@ def test_missing_bearer_is_401() -> None:
     r = client.post("/v1/conversations", headers={"X-Merchant-Id": "google:test"})
     assert r.status_code == 401
     assert r.json()["error"]["code"] == "unauthorized"
+
+
+def test_onb_invalid_token_is_401() -> None:
+    async def boom(_bearer: str):
+        raise RuntimeError("invalid_token: ONB rejected the Google access token")
+
+    client = TestClient(create_app(boom))
+    r = client.post("/v1/conversations", headers=AUTH)
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "unauthorized"
+
+
+def test_onb_generic_mcp_4xx_is_401() -> None:
+    async def boom(_bearer: str):
+        raise RuntimeError("Server returned an error response")
+
+    client = TestClient(create_app(boom))
+    r = client.post("/v1/conversations", headers=AUTH)
+    assert r.status_code == 401
+    assert r.json()["error"]["code"] == "unauthorized"

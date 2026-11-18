@@ -51,6 +51,47 @@ class McpOnb(OnbTools):
         return await call(self.client, "get_review", {"application_id": application_id})
 
 
+class LiveOnb(OnbTools):
+    """Fresh MCP connect per tool call.
+
+    Streamable HTTP keeps a long-lived SSE session. On Render that stream dies
+    between turns, so a held Client works for create and fails on the next message.
+    """
+
+    def __init__(self, mcp_url: str, bearer_fn) -> None:
+        self.mcp_url = mcp_url
+        self.bearer_fn = bearer_fn
+
+    async def next_step(self, application_id: str | None = None) -> dict:
+        return await self._run("next_step", application_id)
+
+    async def save_answer(self, application_id: str, field: str, value: str) -> dict:
+        return await self._run("save_answer", application_id, field, value)
+
+    async def save_file(
+        self,
+        application_id: str,
+        slot: str,
+        file: str | None = None,
+        missing: bool = False,
+    ) -> dict:
+        return await self._run("save_file", application_id, slot, file=file, missing=missing)
+
+    async def submit(self, application_id: str) -> dict:
+        return await self._run("submit", application_id)
+
+    async def get_review(self, application_id: str) -> dict:
+        return await self._run("get_review", application_id)
+
+    async def _run(self, method: str, *args, **kwargs):
+        client, http = await connect_bearer(self.mcp_url, self.bearer_fn)
+        try:
+            return await getattr(McpOnb(client), method)(*args, **kwargs)
+        finally:
+            await client.__aexit__(None, None, None)
+            await http.aclose()
+
+
 async def call(client, name: str, arguments: dict) -> dict:
     result = tool_payload(await client.call_tool(name, arguments))
     shown = {key: value for key, value in arguments.items() if key not in {"value", "application_id"}}
@@ -94,8 +135,43 @@ async def connect_bearer(mcp_url: str, bearer_fn):
     http = httpx2.AsyncClient(auth=_Bearer(), follow_redirects=False, timeout=60)
     transport = streamable_http_client(mcp_url, http_client=http)
     client = Client(transport, client_info=Implementation(name="ipe-copilot", version="0.0.2"))
-    await client.__aenter__()
+    try:
+        await client.__aenter__()
+    except Exception as exc:
+        # mcp 2.3 maps HTTP 401 to a generic MCPError ("Server returned an error
+        # response") that hides invalid_token. Probe once so callers can tell auth apart.
+        status = await _mcp_status(http, mcp_url)
+        if status in (401, 403):
+            await http.aclose()
+            raise RuntimeError("invalid_token: ONB rejected the Google access token") from exc
+        await http.aclose()
+        raise
     return client, http
+
+
+async def _mcp_status(http, mcp_url: str) -> int | None:
+    """POST a tiny initialize; return the HTTP status, or None if the probe itself failed."""
+    try:
+        response = await http.post(
+            mcp_url,
+            headers={
+                "Content-Type": "application/json",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "ipe-copilot", "version": "0.0.2"},
+                },
+            },
+        )
+        return response.status_code
+    except Exception:
+        return None
 
 
 def _auth(mcp_url: str, redirect_uri: str, waiter: Wait):

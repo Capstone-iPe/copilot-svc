@@ -132,22 +132,42 @@ def _exc_text(exc: BaseException) -> str:
     return " ".join(parts)
 
 
-def _onb_http_error(exc: BaseException) -> HTTPException:
+def _onb_http_error(exc: BaseException, *, opening: bool = False) -> HTTPException:
     text = _exc_text(exc).lower()
-    if any(token in text for token in ("401", "unauthorized", "invalid_token", "forbidden", "not allowed")):
+    # mcp 2.3 often surfaces ONB's 401 as "Server returned an error response" only;
+    # connect_bearer rewrites that to invalid_token after a status probe.
+    if any(
+        token in text
+        for token in (
+            "401",
+            "403",
+            "unauthorized",
+            "invalid_token",
+            "forbidden",
+            "not allowed",
+            "server returned an error response",
+        )
+    ):
         return HTTPException(
             status_code=401,
             detail={
                 "code": "unauthorized",
                 "message": (
-                    "ONB rejected the Google token. Use Google sign-in, and on onb-k8ud set "
-                    "GOOGLE_ALLOWED_AUDIENCES to the web app's GOOGLE_CLIENT_ID if it differs."
+                    "ONB rejected the Google access token. Use Google sign-in (not development "
+                    "login), and confirm GOOGLE_ALLOWED_EMAILS on onb-k8ud includes this account."
                 ),
             },
         )
+    short = _exc_text(exc).strip().replace("\n", " ")
+    if len(short) > 180:
+        short = short[:177] + "..."
+    head = "Could not open a live ONB session." if opening else "The live ONB call failed."
     return HTTPException(
         status_code=502,
-        detail={"code": "onb_unavailable", "message": "Could not open a live ONB session."},
+        detail={
+            "code": "onb_unavailable",
+            "message": f"{head} ({short})" if short else head,
+        },
     )
 
 
@@ -156,7 +176,8 @@ async def _open_session(bearer: str) -> tuple[Session, dict]:
     try:
         return await _start(bearer)
     except Exception as exc:
-        raise _onb_http_error(exc) from exc
+        log.exception("live ONB open failed")
+        raise _onb_http_error(exc, opening=True) from exc
 
 
 
@@ -313,6 +334,7 @@ async def send_message(
     try:
         reply = await conv.session.turn(line)
     except Exception as exc:
+        log.exception("live ONB turn failed conversation_id=%s", conversation_id)
         raise _onb_http_error(exc) from exc
     rendered = adapter.render(reply, line=line)
     reply_msg = _apply_turn(conv, rendered, merchant_text=shown)
@@ -345,6 +367,7 @@ async def send_file(
     try:
         reply = await conv.session.turn(name)
     except Exception as exc:
+        log.exception("live ONB file turn failed conversation_id=%s", conversation_id)
         raise _onb_http_error(exc) from exc
     rendered = adapter.render(reply, line=name)
     reply_msg = _apply_turn(
