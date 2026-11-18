@@ -44,7 +44,7 @@ One purpose per file. Names say what the file does. No package called `data`, `d
 copilot-svc/
   pyproject.toml            dependencies, pytest, ruff, pyright
   requirements.txt
-  vm06-ca.crt               chat server certificate, in git
+  vm06-ca.crt               chat server CA, local only (gitignored)
   index/                    built search index, not in git
   src/copilot/
     cli.py                  main(), the input loop, print. Nothing else.

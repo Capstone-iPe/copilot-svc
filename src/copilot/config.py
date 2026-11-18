@@ -28,14 +28,8 @@ def chat_base_url() -> str:
 
 
 def chat_ca_cert() -> Path:
-    # deploy/ is tracked for Render; a root *.crt is gitignored.
-    deployed = ROOT / "deploy" / "vm06-ca.crt"
-    path = _path("CHAT_CA_CERT", deployed)
-    if path.is_file():
-        return path
-    if deployed.is_file():
-        return deployed
-    return path
+    # Never commit the CA. Local: repo-root vm06-ca.crt. Render: secret file + CHAT_CA_CERT.
+    return _path("CHAT_CA_CERT", ROOT / "vm06-ca.crt")
 
 
 def chat_model() -> str:

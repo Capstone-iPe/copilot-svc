@@ -25,13 +25,13 @@ cp .env.example .env
 # fill CHAT_API_KEY and CORPUS_API_KEY
 ```
 
-Place `vm06-ca.crt` at the repo root (or set an absolute `CHAT_CA_CERT`). `.env` and local secrets stay gitignored.
+Place `vm06-ca.crt` at the repo root locally (gitignored). On Render, mount it as a secret file and set `CHAT_CA_CERT=/etc/secrets/vm06-ca.crt`. Never commit the CA.
 
 | Variable | Purpose |
 |---|---|
 | `CHAT_API_KEY` | Hosted chat completions |
 | `CHAT_BASE_URL` | OpenAI-compatible base URL |
-| `CHAT_CA_CERT` | TLS CA for the chat host (default `vm06-ca.crt`) |
+| `CHAT_CA_CERT` | TLS CA for the chat host (local `vm06-ca.crt`; Render secret path) |
 | `CHAT_MODEL` | Default `Qwen/Qwen3-8B` |
 | `ONB_MCP_URL` | Live ONB MCP endpoint (CLI / web) |
 | `CORPUS_SEARCH_URL` | onb-corpus base URL |
