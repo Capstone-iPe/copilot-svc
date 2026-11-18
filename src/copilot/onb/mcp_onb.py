@@ -77,7 +77,7 @@ async def connect(mcp_url: str):
 
 
 async def connect_bearer(mcp_url: str, bearer_fn):
-    """Server path: live ONB with a Google access token. No browser.
+    """Server path: live ONB with the FE's Google access token. No refresh here.
 
     bearer_fn is a zero-arg callable that returns the current access token.
     """

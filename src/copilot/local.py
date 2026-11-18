@@ -1,7 +1,6 @@
 """Local Session factory: in-process ONB. For laptop runs and smoke only.
 
-Not the deploy path. Deploy will start a Session whose OnbTools talks to live ONB
-with a bearer.
+Not the deploy path. Deploy uses live.py and the FE's Bearer token.
 """
 
 from __future__ import annotations
@@ -27,9 +26,11 @@ def _memory_onb():
     return MemoryOnb()
 
 
-async def local_start() -> tuple[Session, dict]:
+async def local_start(bearer: str = "") -> tuple[Session, dict]:
+    del bearer  # MemoryOnb ignores auth; FE still sends a bearer to the API.
     onb = _memory_onb()
     step = await onb.next_step()
     corpus = RemoteCorpus()
     session = Session(QwenChat(), onb, corpus, step["application_id"], step)
     return session, step
+

@@ -2,7 +2,7 @@
 
   PYTHONPATH=src .venv/bin/python -m copilot
 
-Set ONB_MCP_BEARER, or GOOGLE_REFRESH_TOKEN + GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET.
+FE sends Authorization: Bearer <Google access token>. Copilot forwards it to ONB.
 Binds 0.0.0.0:$PORT for Render. USE_MEMORY_ONB=1 keeps the laptop MemoryOnb path.
 """
 

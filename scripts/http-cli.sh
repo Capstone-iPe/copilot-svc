@@ -6,13 +6,22 @@
 #
 set -euo pipefail
 
-BASE="${1:-${COPILOT_BASE_URL:-https://copilot-api-seyt.onrender.com}}"
+BASE="${1:-${COPILOT_BASE_URL:-https://copilot-svc.onrender.com}}"
 BASE="${BASE%/}"
+BEARER="${COPILOT_BEARER:-}"
 
 if ! command -v curl >/dev/null || ! command -v python3 >/dev/null; then
   echo "Need curl and python3." >&2
   exit 1
 fi
+
+if [[ -z "$BEARER" ]]; then
+  echo "Set COPILOT_BEARER to a Google access token (FE refreshes; this script does not)." >&2
+  exit 1
+fi
+
+AUTH_HEADER=(-H "Authorization: Bearer $BEARER")
+
 
 json_get() {
   local key="$1"
@@ -41,7 +50,7 @@ if [[ -z "$health" ]]; then
   exit 1
 fi
 
-opened="$(curl -sf -X POST "$BASE/v1/conversations")"
+opened="$(curl -sf -X POST "$BASE/v1/conversations" "${AUTH_HEADER[@]}")"
 CID="$(printf '%s' "$opened" | json_get conversation_id)"
 if [[ -z "$CID" ]]; then
   echo "Open failed: $opened" >&2
@@ -73,6 +82,7 @@ while true; do
   fi
 
   if ! out="$(curl -sf -X POST "$BASE/v1/conversations/$CID/$path" \
+      "${AUTH_HEADER[@]}" \
       -H 'Content-Type: application/json' \
       -d "$body")"; then
     echo "Request failed." >&2
@@ -80,3 +90,4 @@ while true; do
   fi
   printf '%s' "$out" | print_turn
 done
+

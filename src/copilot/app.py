@@ -1,10 +1,10 @@
 """FastAPI service the FE calls.
 
-Shape (auth and history come later):
-
   FE --Bearer--> Copilot --Bearer--> ONB
 
-Routes now:
+The FE refreshes Google. Copilot only forwards the access token.
+
+Routes:
 
   GET  /v1/health
   POST /v1/conversations                 open one chat, return the first prompt
@@ -19,13 +19,13 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from copilot.adapters.web import WebAdapter
 from copilot.session import Session
 
-SessionFactory = Callable[[], Awaitable[tuple[Session, dict]]]
+SessionFactory = Callable[[str], Awaitable[tuple[Session, dict]]]
 
 app = FastAPI(title="iPe copilot", version="0.1.0")
 sessions: dict[str, Session] = {}
@@ -49,16 +49,29 @@ def create_app(start: SessionFactory) -> FastAPI:
     set_start(start)
     return app
 
+def _bearer(authorization: str | None) -> str:
+    if not authorization:
+        raise HTTPException(status_code=401, detail="missing_bearer")
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise HTTPException(status_code=401, detail="missing_bearer")
+    return token.strip()
+
+def _refresh_session_bearer(session: Session, bearer: str) -> None:
+    token = getattr(session, "access_token", None)
+    if token is not None:
+        token.set(bearer)
+
 @app.get("/v1/health")
 async def health() -> dict:
     return {"ok": True}
 
 @app.post("/v1/conversations", status_code=201)
-async def open_conversation() -> dict:
-    # Auth: validate FE bearer, then open ONB with a bearer. Later.
+async def open_conversation(authorization: str | None = Header(default=None)) -> dict:
     if _start is None:
         raise HTTPException(status_code=500, detail="start_not_configured")
-    session, step = await _start()
+    bearer = _bearer(authorization)
+    session, step = await _start(bearer)
     conversation_id = str(step.get("application_id") or "")
     if not conversation_id or step.get("error"):
         raise HTTPException(status_code=502, detail=str(step.get("error") or "no_conversation"))
@@ -68,10 +81,15 @@ async def open_conversation() -> dict:
     return body
 
 @app.post("/v1/conversations/{conversation_id}/messages")
-async def send_message(conversation_id: str, body: MessageBody) -> dict:
+async def send_message(
+    conversation_id: str,
+    body: MessageBody,
+    authorization: str | None = Header(default=None),
+) -> dict:
     session = sessions.get(conversation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="unknown_conversation")
+    _refresh_session_bearer(session, _bearer(authorization))
     text = body.text.strip()
     if not text:
         raise HTTPException(status_code=400, detail="empty_message")
@@ -81,10 +99,15 @@ async def send_message(conversation_id: str, body: MessageBody) -> dict:
     return out
 
 @app.post("/v1/conversations/{conversation_id}/files")
-async def send_file(conversation_id: str, body: FileBody) -> dict:
+async def send_file(
+    conversation_id: str,
+    body: FileBody,
+    authorization: str | None = Header(default=None),
+) -> dict:
     session = sessions.get(conversation_id)
     if session is None:
         raise HTTPException(status_code=404, detail="unknown_conversation")
+    _refresh_session_bearer(session, _bearer(authorization))
     name = body.file.strip()
     if not name:
         raise HTTPException(status_code=400, detail="empty_file")

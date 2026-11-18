@@ -47,24 +47,35 @@ class FakeOnb(OnbTools):
         return {}
 
 
-async def _start():
+async def _start(bearer: str):
+    assert bearer
     onb = FakeOnb()
     step = await onb.next_step()
     session = Session(RecordedChat({}), onb, EmptyCorpus(), step["application_id"], step)
     return session, step
 
 
+AUTH = {"Authorization": "Bearer test-token"}
+
+
 def test_health_and_one_turn() -> None:
     client = TestClient(create_app(_start))
     assert client.get("/v1/health").json() == {"ok": True}
-    opened = client.post("/v1/conversations")
+    opened = client.post("/v1/conversations", headers=AUTH)
     assert opened.status_code == 201
     body = opened.json()
     assert body["conversation_id"] == "app_test"
     assert body["asking"] == "shop_name"
     turned = client.post(
         f"/v1/conversations/{body['conversation_id']}/messages",
+        headers=AUTH,
         json={"text": "Lotus Tea House"},
     )
     assert turned.status_code == 200
     assert turned.json()["asking"] == "city"
+
+
+def test_missing_bearer_is_401() -> None:
+    client = TestClient(create_app(_start))
+    assert client.post("/v1/conversations").status_code == 401
+

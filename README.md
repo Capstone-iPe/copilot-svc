@@ -92,14 +92,22 @@ Scores, failure taxonomy, and trace schema: [docs/eval.md](docs/eval.md).
 ## FastAPI (live ONB MCP)
 
 ```bash
-# Needs ONB_MCP_BEARER, or GOOGLE_REFRESH_TOKEN + GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET
 PYTHONPATH=src .venv/bin/python -m copilot
 
 # Laptop-only in-process ONB (sibling onb-svc checkout):
 USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
 
-Render: [https://copilot-api-seyt.onrender.com](https://copilot-api-seyt.onrender.com) — same Google OAuth app as ONB, plus a refresh token for an allowed email.
+Every conversation / message / file call needs `Authorization: Bearer <Google access token>`.
+The FE refreshes Google; copilot only forwards that token to ONB.
+
+Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com)
+
+```bash
+# Smoke against Render (token from FE / Google; not refreshed by this service)
+COPILOT_BEARER=ya29... ./scripts/http-cli.sh
+```
+
 
 ## Tests
 

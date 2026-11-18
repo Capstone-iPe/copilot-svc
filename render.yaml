@@ -1,9 +1,9 @@
 # Capstone-iPe/copilot-svc FastAPI → live ONB MCP.
-# Secrets stay sync: false.
+# Secrets stay sync: false. Google refresh stays on the FE.
 
 services:
   - type: web
-    name: copilot-api
+    name: copilot-svc
     runtime: python
     plan: free
     region: oregon
@@ -26,10 +26,4 @@ services:
       - key: CHAT_API_KEY
         sync: false
       - key: CORPUS_API_KEY
-        sync: false
-      - key: GOOGLE_CLIENT_ID
-        sync: false
-      - key: GOOGLE_CLIENT_SECRET
-        sync: false
-      - key: GOOGLE_REFRESH_TOKEN
         sync: false
