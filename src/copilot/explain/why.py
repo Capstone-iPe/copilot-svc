@@ -6,7 +6,7 @@ import json
 
 from copilot.explain.checker import critic, without_prompt
 from copilot.explain.fallback import passage_fallback
-from copilot.explain.passages import allowed_ids, named_words, passages_for_why, prefer_held
+from copilot.explain.passages import allowed_ids, prefer_held
 from copilot.prompts import explain_prompt
 from copilot.words import DOC_ID, FIELD_TOPICS, SLOT_WORDS
 
@@ -15,10 +15,9 @@ _PLAIN = (
     "Phrase the passage that says why. Do not mention a document the merchant did not name."
 )
 _FREE = (
-    "Answer the merchant's question from the passages. If the passages do not define "
-    "the word they asked about, say the onboarding policies do not state it. Then say "
-    "why this field is being asked, from the passage that says why. Do not invent a "
-    "definition. Do not mention a document the merchant did not name."
+    "Answer only the merchant's question from the passages, in one or two short sentences. "
+    "If the passages do not define what they asked, say the onboarding policies do not state it. "
+    "Do not say why the current field is being asked. Do not invent a definition."
 )
 
 
@@ -64,21 +63,49 @@ def why_reply(line, pending, corpus, complete, mode: str = "plain") -> tuple[str
     topic = FIELD_TOPICS.get(name) or SLOT_WORDS.get(name, "")
     query = f"why {topic}".strip() if topic else line
     field_hits = prefer_held(corpus.search(query, k=8), corpus.rows)
-    named = named_words(line, topic, field_hits) if mode == "free" else set()
-    named_hits = corpus.search(line, k=4) if named else []
-    passages = passages_for_why(line, topic, field_hits, named_hits) if mode == "free" else _field_passages(field_hits)
-    answer = explain(
-        why_question(line, topic, mode, named),
-        passages,
-        why_instruction(mode),
-        corpus.document_ids,
-        complete,
-    )
+    field_passages = _field_passages(field_hits)
+    if mode != "free":
+        return _from_passages(why_question(line, topic, mode, set()), field_passages, _PLAIN, corpus, complete)
+    return _ask_reply(line, field_passages, corpus, complete)
+
+
+def _ask_reply(line, field_passages, corpus, complete) -> tuple[str, str]:
+    """The merchant's question, then the pending field's own reason."""
+    side_hits = prefer_held(corpus.search(line, k=8), corpus.rows)
+    side = _other_passages(side_hits, field_passages)
+    answer = explain(line, side, _FREE, corpus.document_ids, complete) if side else None
+    if answer and side and not DOC_ID.search(answer):
+        answer += f" {side[0]['document_id']}."
+    if not answer:
+        answer = "The onboarding policies do not state that."
+        if side:
+            answer += f" {side[0]['document_id']}."
+    field = passage_fallback(field_passages)
+    if field and field not in answer:
+        answer = f"{answer} {field}"
+    return answer.strip(), "model"
+
+
+def _from_passages(question, passages, instruction, corpus, complete) -> tuple[str, str]:
+    answer = explain(question, passages, instruction, corpus.document_ids, complete)
     if answer:
-        if not DOC_ID.search(answer):
+        if passages and not DOC_ID.search(answer):
             answer += f" {passages[0]['document_id']}."
         return answer, "model"
     return passage_fallback(passages), "fallback"
+
+
+def _other_passages(hits: list[dict], field_passages: list[dict]) -> list[dict]:
+    skip = {str(row.get("document_id") or "") for row in field_passages}
+    kept: list[dict] = []
+    seen: set[str] = set()
+    for row in hits:
+        document_id = str(row.get("document_id") or "")
+        if not document_id or document_id in skip or document_id in seen or len(kept) == 3:
+            continue
+        seen.add(document_id)
+        kept.append(row)
+    return kept
 
 
 def _field_passages(field_hits: list[dict]) -> list[dict]:

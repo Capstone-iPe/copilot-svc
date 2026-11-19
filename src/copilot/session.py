@@ -82,7 +82,7 @@ class Session:
                 continue
             if kind == "why" or kind == "ask":
                 mode = "free" if kind == "ask" else "plain"
-                named = act.get("field")
+                named = None if kind == "ask" else act.get("field")
                 why_pending = {"kind": "field", "name": named} if named else pending
                 reply, _written = why_reply(line, why_pending, self.corpus, self.chat.complete, mode=mode)
                 if reply:

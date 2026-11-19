@@ -89,21 +89,21 @@ async def advance_to(session: Session, onb: MemoryOnb, field: str) -> None:
         return
 
 
-async def play_row(field: str, said: str, must: list[str], must_not: list[str], corpus, chat) -> str | None:
+async def play_row(field: str, said: str, must: list[str], must_not: list[str], corpus, chat) -> tuple[str | None, str]:
     onb = MemoryOnb()
     step = await onb.next_step()
     session = Session(chat, onb, corpus, step["application_id"], step)
     await advance_to(session, onb, field)
     pending = session.step.get("pending") or {}
     if pending.get("name") != field:
-        return f"pending={pending.get('name')}"
+        return f"pending={pending.get('name')}", ""
     reply = await session.turn(said)
     text = " ".join(reply.messages) if reply.messages else f"{reply.text} {reply.prompt}"
     if must and not _match_any(text, must):
-        return f"missing must_contain in: {text[:180]}"
+        return f"missing must_contain in: {text[:180]}", text
     if must_not and _match_any(text, must_not):
-        return f"hit must_not in: {text[:180]}"
-    return None
+        return f"hit must_not in: {text[:180]}", text
+    return None, text
 
 
 async def main() -> None:
@@ -120,7 +120,7 @@ async def main() -> None:
     chat = QwenChat()
     failed = 0
     for field, said, must, must_not in rows:
-        problem = await play_row(field, said, must, must_not, corpus, chat)
+        problem, _text = await play_row(field, said, must, must_not, corpus, chat)
         if problem:
             failed += 1
             print(f"FAIL\t{field}\t{said}\t{problem}")

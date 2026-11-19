@@ -25,6 +25,7 @@ _RECAP = re.compile(
     re.I,
 )
 _NAME_IN_CITY = re.compile(r"^.+\s+in\s+\S.+$", re.I)
+_SIDE = re.compile(r"\b(?:what|how|when|where|who|which)\b|\b(?:isn'?t|is not|not enough)\b", re.I)
 _FIELD_WORD = re.compile(
     r"\b(shop(?:'s)? name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b",
     re.I,
@@ -70,11 +71,24 @@ def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) 
     if _RECAP.search(line):
         return [{"type": "recap"}], "model" if parsed is not None else "fallback"
     if parsed:
-        return parsed, "model"
+        return _aside(line, parsed), "model"
     if EDIT_CUE.search(line):
         return [_change(line)], "fallback"
     intent, source = read_intent(line, pending, held, complete)
     return [_as_act(intent, line, pending)], source
+
+
+def _aside(line: str, acts: list[dict]) -> list[dict]:
+    """A side question stays ask, even when the reader calls it why this field."""
+    if not _SIDE.search(line):
+        return acts
+    kept = []
+    for act in acts:
+        if act.get("type") in {"why", "out_of_scope"}:
+            kept.append({**act, "type": "ask", "field": None})
+        else:
+            kept.append(act)
+    return kept
 
 
 def _talk(line: str) -> str | None:

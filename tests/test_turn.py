@@ -1,5 +1,10 @@
 """The model names an intent. Code turns that intent into one tool call."""
 
+import json
+
+from copilot.dialogue import DialogueState
+from copilot.explain.why import why_reply
+from copilot.intent.acts import read_acts
 from copilot import (
     apply_decision,
     critic,
@@ -187,6 +192,66 @@ def test_what_is_upi_keeps_the_merchants_question() -> None:
     assert why_question(clarify, "payer phone numbers addendum", "plain", set()) == (
         "Why payer phone numbers addendum?"
     )
+
+
+class _Corpus:
+    def __init__(self) -> None:
+        self.queries: list[str] = []
+        self.rows: list[dict] = []
+        self.document_ids = {"ONB-POL-001", "ONB-ARTICLES-WHY-UPI-OR-CARDS"}
+
+    def search(self, query, k=4):
+        self.queries.append(query)
+        if str(query).startswith("why"):
+            return [{
+                "document_id": "ONB-POL-001",
+                "folder": "policy",
+                "text": "## Held\n\nThe shop's legal name is required so that bank proof can match it.\n",
+            }]
+        return [{
+            "document_id": "ONB-ARTICLES-WHY-UPI-OR-CARDS",
+            "folder": "articles",
+            "text": "The form asks which payment methods the shop will accept.\n",
+        }]
+
+
+def test_a_side_question_keeps_its_answer_and_the_field_reason() -> None:
+    corpus = _Corpus()
+
+    def complete(messages, max_tokens, schema=None):
+        return "The onboarding policies do not state what UPI is."
+
+    text, source = why_reply(
+        "what is UPI?",
+        {"kind": "field", "name": "shop_name"},
+        corpus,
+        complete,
+        mode="free",
+    )
+    assert source == "model"
+    assert "do not state what UPI is" in text
+    assert "bank proof can match it" in text
+    assert "what is UPI?" in corpus.queries
+
+
+def test_a_side_question_is_not_read_as_why_this_field() -> None:
+    note = json.dumps({"acts": [{"type": "why", "field": "shop_name"}], "confidence": "high"})
+
+    class _Chat:
+        def complete(self, messages, max_tokens, schema=None):
+            return note
+
+    acts, source = read_acts(
+        "what is UPI?",
+        {"kind": "field", "name": "shop_name"},
+        False,
+        {"answers": {}},
+        _Chat().complete,
+        DialogueState(),
+    )
+    assert source == "model"
+    assert acts[0]["type"] == "ask"
+    assert acts[0]["field"] is None
 
 
 def test_why_does_not_save() -> None:
