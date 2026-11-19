@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from copilot.action.closed import closed_error, normalize_closed
-from copilot.words import EDIT_CUE
+from copilot.words import EDIT_CUE, FIELD_OF, FIELD_WORD
 
 FIELDS = {
     "shop_name",
@@ -58,24 +58,6 @@ _BUSINESS = {
     "kirana": "kirana",
     "retail": "retail",
 }
-_FIELD_WORD = re.compile(
-    r"\b(shop(?:'s)? name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b",
-    re.I,
-)
-_FIELD = {
-    "shop name": "shop_name",
-    "shop's name": "shop_name",
-    "legal name": "shop_name",
-    "company name": "shop_name",
-    "business name": "shop_name",
-    "the name": "shop_name",
-    "city": "city",
-    "business type": "business_type",
-    "volume": "monthly_volume",
-    "payment": "payment_methods",
-    "phone": "stores_payer_phones",
-    "phones": "stores_payer_phones",
-}
 
 
 def check_acts(acts: list[dict], line: str, *, held: bool) -> list[dict]:
@@ -118,8 +100,8 @@ def check_acts(acts: list[dict], line: str, *, held: bool) -> list[dict]:
 
 
 def _change(line: str) -> dict:
-    match = _FIELD_WORD.search(line)
-    field = _FIELD.get(match.group(1).lower()) if match else None
+    match = FIELD_WORD.search(line)
+    field = FIELD_OF.get(match.group(1).lower()) if match else None
     act = {"type": "change_request"}
     if field:
         act["field"] = field

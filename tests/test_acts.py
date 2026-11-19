@@ -5,6 +5,7 @@ import asyncio
 from copilot.chat.chat_model import ChatModel
 from copilot.corpus.passages import Passages
 from copilot.onb.onb_tools import OnbTools
+from copilot.say.questions import prompt_for
 from copilot.session import Session
 
 
@@ -257,3 +258,102 @@ def test_a_city_and_a_why_save_only_the_city() -> None:
     assert onb.answers["city"] == "Pune"
     assert "but why" not in onb.answers["city"]
     assert reply.text.startswith("Got it, Pune.")
+
+
+def test_a_later_line_is_not_an_old_confirmation() -> None:
+    session, onb = _session()
+    session.dialogue.awaiting = "confirm:shop_name"
+    session.dialogue.proposed = {"field": "shop_name", "value": "Nope Stores"}
+
+    reply = asyncio.run(session.turn("Pune"))
+
+    assert onb.answers["shop_name"] == "Pune"
+    assert session.dialogue.awaiting is None
+    assert "Nope" not in reply.text
+
+
+def test_never_mind_does_not_save_the_new_value() -> None:
+    session, onb = _session()
+    session.dialogue.awaiting = "value_for:shop_name"
+
+    reply = asyncio.run(session.turn("never mind"))
+
+    assert onb.answers == {}
+    assert "leave that" in reply.text.lower()
+
+
+def test_ok_thanks_is_not_a_shop_name() -> None:
+    session, onb = _session()
+
+    reply = asyncio.run(session.turn("ok thanks"))
+
+    assert onb.answers == {}
+    assert "welcome" in reply.text.lower()
+
+
+def test_so_far_so_good_is_not_a_recap() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"so far so good"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    reply = asyncio.run(session.turn("so far so good"))
+
+    assert onb.answers["shop_name"] == "so far so good"
+    assert not reply.text.startswith("So far,")
+
+
+def test_a_later_field_is_not_stored_quietly() -> None:
+    note = '{"acts":[{"type":"answer","field":"monthly_volume","value_span":"9 lakh"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    reply = asyncio.run(session.turn("volume is 9 lakh"))
+
+    assert onb.answers == {}
+    assert "monthly volume" in reply.text.lower()
+    assert "current answer" in reply.text.lower()
+
+
+def test_undo_asks_for_the_last_saved_field() -> None:
+    session, onb = _session()
+    asyncio.run(session.turn("Sharma Sweets"))
+    note = '{"acts":[{"type":"undo"}],"confidence":"high"}'
+    session.chat = Scripted(note)
+
+    reply = asyncio.run(session.turn("please undo that last answer"))
+
+    assert onb.answers["shop_name"] == "Sharma Sweets"
+    assert "shop name" in reply.text.lower()
+    assert session.dialogue.awaiting == "value_for:shop_name"
+
+
+def test_the_first_question_stays_canonical() -> None:
+    step = {"pending": {"kind": "field", "name": "shop_name"}, "snapshot": {"answers": {}, "files": {}}}
+    assert prompt_for(step) == "What is the shop's legal name?"
+
+
+def test_a_later_question_counts_and_starts_lower() -> None:
+    step = {
+        "pending": {"kind": "field", "name": "city"},
+        "snapshot": {"answers": {"shop_name": "Sharma Sweets"}, "files": {}},
+    }
+    shown = prompt_for(step)
+    assert shown.startswith("That's 1 of 7. Next, ")
+    assert "Next, W" not in shown
+    assert "city" in shown.lower()
+
+
+def test_a_finished_form_lists_answers_before_submit() -> None:
+    step = {
+        "pending": None,
+        "snapshot": {
+            "answers": {"shop_name": "Sharma Sweets", "city": "Pune", "monthly_volume": "120000"},
+            "files": {
+                "bank_proof": {"state": "accepted"},
+                "dpa_addendum": {"state": "missing"},
+            },
+        },
+    }
+    shown = prompt_for(step)
+    assert "Here's what I have for Sharma Sweets:" in shown
+    assert "120000" in shown
+    assert "missing" in shown.lower()
+    assert "shall I submit" in shown

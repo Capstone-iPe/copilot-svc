@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copilot.action.slots import slot_states
-from copilot.words import SLOT_WORDS
+from copilot.words import DIGITS, SLOT_WORDS
 
 QUESTIONS = {
     "shop_name": "What is the shop's legal name?",
@@ -16,6 +16,24 @@ QUESTIONS = {
     "payment_methods": "Which payment methods will the shop take? For example UPI, cards, cash, or wallet.",
     "stores_payer_phones": "Will the shop store payer phone numbers? Yes or no.",
     "note": "Any note to add? You can say no note.",
+}
+_TEXT_FIELDS = (
+    "shop_name",
+    "city",
+    "business_type",
+    "monthly_volume",
+    "payment_methods",
+    "stores_payer_phones",
+    "note",
+)
+_LABELS = {
+    "shop_name": "Shop name",
+    "city": "City",
+    "business_type": "Business type",
+    "monthly_volume": "Monthly volume",
+    "payment_methods": "Payment methods",
+    "stores_payer_phones": "Stores payer phones",
+    "note": "Note",
 }
 WEB_UPLOADS = {
     "business_registration": "Tap Upload to add the business registration. PDF, JPG, or PNG.",
@@ -46,6 +64,22 @@ _VARIANTS = {
     "business_type": (
         "What kind of shop is it? Restaurant, grocery, and retail are permitted; cafe or kirana are fine. Name the type clearly.",
         "What kind of shop is it: restaurant, grocery, retail, or something else?",
+    ),
+    "monthly_volume": (
+        "What is the expected monthly volume, in rupees? Use digits, such as ₹12,00,000.",
+        "About how much does the shop take in a month? A number, such as 12 lakh, is fine.",
+    ),
+    "payment_methods": (
+        "Which payment methods will the shop take? For example UPI, cards, cash, or wallet.",
+        "How will customers pay: UPI, cards, cash, wallet, or a mix?",
+    ),
+    "stores_payer_phones": (
+        "Will the shop store payer phone numbers? Yes or no.",
+        "Do you keep the payer's phone number, yes or no?",
+    ),
+    "note": (
+        "Any note to add? You can say no note.",
+        "Anything else to add, or no note?",
     ),
 }
 
@@ -79,24 +113,65 @@ def prompt_for(step: dict, *, web: bool = False) -> str:
     pending = step.get("pending") if isinstance(step.get("pending"), dict) else None
     if pending:
         stored = answers(step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {})
-        filled = [key for key, value in stored.items() if value]
+        filled = [key for key in _TEXT_FIELDS if stored.get(key)]
         shop = str(stored.get("shop_name") or "")
         question = question_for(pending, web=web, turn=len(filled), shop=shop)
-        if not filled or pending.get("kind") != "field":
-            return question
-        if len(filled) >= 6:
-            return f"Last question: {question}"
-        if len(filled) >= 4:
-            return f"Almost done. {question}"
-        return f"Next, {question}"
+        return _lead(question, len(filled), str(pending.get("kind") or ""))
     snapshot = step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {}
     slots = slot_states(snapshot)
     if isinstance(snapshot.get("verdict"), dict):
         if slots["missing"] or slots["open"]:
             return "You can still upload a missing document."
         return ""
-    shop = answers(snapshot).get("shop_name")
-    head = f"I have every answer for {shop}." if shop else "I have every answer."
+    return _ready(snapshot, slots)
+
+
+def _lead(question: str, filled: int, kind: str) -> str:
+    if kind == "upload" and filled >= 6:
+        return f"All the questions are done. Just the documents left. {question}"
+    if kind != "field" or not filled:
+        return question
+    if filled >= 6:
+        prefix = "Last question:"
+    elif filled >= 4:
+        prefix = "Almost done."
+    else:
+        prefix = "Next,"
+    return f"That's {filled} of 7. {_lower(prefix, question)}"
+
+
+def _lower(prefix: str, question: str) -> str:
+    if not question:
+        return prefix
+    return f"{prefix} {question[0].lower()}{question[1:]}"
+
+
+def _ready(snapshot: dict, slots: dict) -> str:
+    stored = answers(snapshot)
+    rows = []
+    for key in _TEXT_FIELDS:
+        value = stored.get(key)
+        if not value:
+            continue
+        shown = str(value)
+        if key != "monthly_volume":
+            shown = DIGITS.sub("[number hidden]", shown)
+        rows.append(f"- {_LABELS.get(key, key)}: {shown}")
+    files = snapshot.get("files") if isinstance(snapshot.get("files"), dict) else {}
+    accepted = sum(1 for file in files.values() if isinstance(file, dict) and file.get("state") == "accepted")
+    missing = slots.get("missing") or []
+    if files:
+        if missing:
+            rows.append(f"- Documents: {accepted} uploaded, {len(missing)} missing ({slot_list(missing)})")
+        else:
+            rows.append(f"- Documents: {accepted} uploaded")
+    shop = stored.get("shop_name")
+    head = f"Here's what I have for {shop}:" if shop else "Here's what I have:"
+    listed = "\n".join(rows)
     if slots["open"]:
-        return f"{head} These documents are still open: {slot_list(slots['open'])}. Upload one, or say you don't have them."
-    return f"{head} Submit the application?"
+        return (
+            f"{head}\n{listed}\n\n"
+            f"These documents are still open: {slot_list(slots['open'])}. "
+            "Upload one, or say you don't have them."
+        )
+    return f"{head}\n{listed}\n\nWant to change anything, or shall I submit?"

@@ -9,3 +9,10 @@ def test_typed_digits_are_hidden() -> None:
     assert "5521" not in shown
     assert "MR-2041" in shown
     assert "[number hidden]" in shown
+
+
+def test_a_volume_acknowledgement_keeps_the_number() -> None:
+    assert redact("Got it, 120000.", "120000") == "Got it, 120000."
+    assert redact("No problem, I've updated the monthly volume to 120000.", "120000") == (
+        "No problem, I've updated the monthly volume to 120000."
+    )

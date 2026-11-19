@@ -6,10 +6,10 @@ from copilot.action.change import resolve_change
 from copilot.words import ASSIGNEE_WORDS
 
 _LINES = {
-    "readback": "I can't repeat identity, account, or phone numbers in the chat, including the last four digits. ONB-POL-004.",
-    "other_shop": "I can only help with this application, not another shop. ONB-POL-004 §5.",
-    "out_of_scope": "I can't help with that here. It's outside onboarding. ONB-POL-004 §5.",
-    "no_file": "No file came through. Saying it is attached does not count. ONB-POL-001 §2.",
+    "readback": "I can't repeat identity, account, or phone numbers in the chat, including the last four digits. (ONB-POL-004)",
+    "other_shop": "I can only help with this application, not another shop. (ONB-POL-004 §5)",
+    "out_of_scope": "I can't help with that here. It's outside onboarding. (ONB-POL-004 §5)",
+    "no_file": "No file came through. Saying it is attached does not count. (ONB-POL-001 §2)",
     "not_ready": "Submit comes after the last question.",
     "no_review_yet": "No review is open yet. A review opens only after you submit.",
     "change_how": "Tell me which answer to change and what it should be. For example, the city is Pune.",

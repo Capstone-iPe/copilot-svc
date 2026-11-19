@@ -13,7 +13,18 @@ from copilot.intent.guard import guard_intent
 from copilot.intent.reader import read_intent
 from copilot.prompts import READER_PROMPT, READER_SCHEMA
 from copilot.say.questions import question_for
-from copilot.words import DIGITS, EDIT_CUE, FAST_CUE, FIELD_SYNONYM, QUESTION_WORD, SMALL_TALK, THINK
+from copilot.words import (
+    CHAT_WORDS,
+    DIGITS,
+    EDIT_CUE,
+    FAST_CUE,
+    FIELD_OF,
+    FIELD_SYNONYM,
+    FIELD_WORD,
+    QUESTION_WORD,
+    SMALL_TALK,
+    THINK,
+)
 
 log = logging.getLogger("copilot")
 
@@ -21,29 +32,15 @@ _PAUSE = re.compile(r"^(?:wait|later)\b|\blet me check\b", re.I)
 _YES = re.compile(r"^(?:yes|y|yeah|haan)\b", re.I)
 _NO = re.compile(r"^(?:no|n|nahi)\b", re.I)
 _RECAP = re.compile(
-    r"\b(?:what have i|what values|what answers|show my|have you captured|captured so far|so far)\b",
+    r"\b(?:what have i|what values|what answers|show my|have you captured|captured so far)\b",
     re.I,
 )
 _NAME_IN_CITY = re.compile(r"^.+\s+in\s+\S.+$", re.I)
 _SIDE = re.compile(r"\b(?:what|how|when|where|who|which)\b|\b(?:isn'?t|is not|not enough)\b", re.I)
-_FIELD_WORD = re.compile(
-    r"\b(shop(?:'s)? name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b",
+_CANCEL = re.compile(
+    r"^(?:never mind|forget it|no,? it'?s fine|leave it|don'?t change(?: it)?|cancel(?: that)?)$",
     re.I,
 )
-_FIELD = {
-    "shop name": "shop_name",
-    "shop's name": "shop_name",
-    "legal name": "shop_name",
-    "company name": "shop_name",
-    "business name": "shop_name",
-    "the name": "shop_name",
-    "city": "city",
-    "business type": "business_type",
-    "volume": "monthly_volume",
-    "payment": "payment_methods",
-    "phone": "stores_payer_phones",
-    "phones": "stores_payer_phones",
-}
 
 
 def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> tuple[list[dict], str]:
@@ -93,10 +90,10 @@ def _aside(line: str, acts: list[dict]) -> list[dict]:
 
 def _talk(line: str) -> str | None:
     low = line.strip().lower().rstrip("?.! ")
-    if low in SMALL_TALK or low == "👍":
+    if low in SMALL_TALK or low == "👍" or _chatty(line):
         return "chitchat"
     text = line.strip()
-    if _PAUSE.search(text) and not EDIT_CUE.search(text) and not _FIELD_WORD.search(text):
+    if _PAUSE.search(text) and not EDIT_CUE.search(text) and not FIELD_WORD.search(text):
         return "pause"
     return None
 
@@ -108,12 +105,17 @@ def _waiting(line: str, dialogue: DialogueState) -> list[dict] | None:
             return [{"type": "confirm_yes"}]
         if _NO.match(line.strip()):
             return [{"type": "confirm_no"}]
+        dialogue.awaiting = None
+        dialogue.proposed = None
         return None
+    if awaiting.startswith("value_for:") and _CANCEL.match(line.strip().rstrip("?.! ")):
+        dialogue.awaiting = None
+        return [{"type": "confirm_no"}]
     if awaiting.startswith("value_for:") and not line.strip().endswith("?") and not QUESTION_WORD.search(line):
         field = awaiting.split(":", 1)[1]
         return [{"type": "correct", "field": field, "value_span": line.strip(), "confidence": "high"}]
     if awaiting == "which_field":
-        field = _FIELD.get(_field_word(line) or "")
+        field = FIELD_OF.get(_field_word(line) or "")
         if field:
             return [{"type": "change_request", "field": field}]
     return None
@@ -130,7 +132,7 @@ def _fast_answer(line: str, pending) -> bool:
     if QUESTION_WORD.search(text) or FAST_CUE.search(text):
         return False
     low = text.lower().rstrip("?.! ")
-    if low in SMALL_TALK:
+    if low in SMALL_TALK or any(token in CHAT_WORDS for token in re.findall(r"[a-z']+", low)):
         return False
     name = str(pending.get("name") or "")
     for field, pattern in FIELD_SYNONYM:
@@ -150,15 +152,20 @@ def _as_act(intent: str, line: str, pending) -> dict:
 
 
 def _change(line: str) -> dict:
-    field = _FIELD.get(_field_word(line) or "")
+    field = FIELD_OF.get(_field_word(line) or "")
     act = {"type": "change_request"}
     if field:
         act["field"] = field
     return act
 
 
+def _chatty(line: str) -> bool:
+    words = re.findall(r"[a-z']+", line.lower())
+    return bool(words) and all(word in CHAT_WORDS for word in words)
+
+
 def _field_word(line: str) -> str | None:
-    match = _FIELD_WORD.search(line)
+    match = FIELD_WORD.search(line)
     return match.group(1).lower() if match else None
 
 

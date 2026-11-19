@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 
 from copilot.action.check import check_acts
 from copilot.action.decide import apply_decision
@@ -20,7 +19,7 @@ from copilot.reply import Reply
 from copilot.say.files import result_reply
 from copilot.say.questions import answers, prompt_for
 from copilot.say.refusals import refusal, which_reply
-from copilot.words import DIGITS
+from copilot.words import DIGITS, FIELD_OF, FIELD_WORD
 
 log = logging.getLogger("copilot")
 
@@ -73,12 +72,12 @@ class Session:
         for act in checked:
             kind = str(act.get("type") or "")
             if kind in _ACT_SAVE:
-                wrote = await self._save_act(act, kind == "correct")
-                if wrote is None:
-                    continue
-                texts.append(wrote)
-                saved = True
-                pending, snapshot, verdict, held = _view(self.step)
+                wrote, did_save = await self._save_act(act, kind == "correct")
+                if wrote:
+                    texts.append(wrote)
+                if did_save:
+                    saved = True
+                    pending, snapshot, verdict, held = _view(self.step)
                 continue
             if kind == "why" or kind == "ask":
                 mode = "free" if kind == "ask" else "plain"
@@ -99,7 +98,7 @@ class Session:
                 texts.append(f"Did you mean {value} for the {field.replace('_', ' ')}?")
                 continue
             if kind == "confirm_yes" and self.dialogue.proposed:
-                wrote = await self._save_act(
+                wrote, did_save = await self._save_act(
                     {"field": self.dialogue.proposed["field"], "value_span": self.dialogue.proposed["value"]},
                     True,
                 )
@@ -107,6 +106,7 @@ class Session:
                 self.dialogue.awaiting = None
                 if wrote:
                     texts.append(wrote)
+                if did_save:
                     saved = True
                 continue
             if kind == "confirm_no":
@@ -133,7 +133,7 @@ class Session:
             step=self.step,
         )
 
-    async def _save_act(self, act: dict, correct: bool) -> str | None:
+    async def _save_act(self, act: dict, correct: bool) -> tuple[str | None, bool]:
         field = str(act.get("field") or "")
         value = str(act.get("value_span") or "").strip()
         pending, snapshot, _verdict, _held = _view(self.step)
@@ -142,32 +142,43 @@ class Session:
             isinstance(pending, dict) and pending.get("kind") == "field" and pending.get("name") == field
         )
         already = field in stored and stored.get(field) is not None
-        if not field or not value or not (is_pending or already):
-            return None
+        if not field or not value:
+            return None, False
+        if not (is_pending or already):
+            label = field.replace("_", " ")
+            return f"I still need the current answer before I can store the {label}.", False
         result = await self.onb.save_answer(self.application_id, field, value)
         action = {"action": "save", "field": field, "value": value, "correct": correct}
         if result.get("error"):
             reply, _new = result_reply(action, [result], stored)
             self.step = await self.onb.next_step(self.application_id)
-            return reply
+            return reply, False
         reply, _new = result_reply(action, [result], stored)
         self.dialogue.last_saved = field
         self.dialogue.focus = field
         if self.dialogue.awaiting == f"value_for:{field}":
             self.dialogue.awaiting = None
         self.step = await self.onb.next_step(self.application_id)
-        return reply
+        return reply, True
 
     def _aside(self, kind: str, line: str, snapshot: dict, pending, act: dict | None = None) -> str:
         if kind == "chitchat":
             low = line.strip().lower().rstrip("?.! ")
-            if low in {"thanks", "thank you"}:
+            if "thank" in low:
                 return "You're welcome."
             return "Hi! Let's carry on."
         if kind == "pause":
             return "Sure, take your time. Everything so far is saved. Just come back and we'll continue from here."
         if kind == "undo":
-            return "I can't undo a saved answer. Tell me the field and the new value, and I'll update it."
+            last = self.dialogue.last_saved
+            if last:
+                self.dialogue.awaiting = f"value_for:{last}"
+                return f"Sure, what should the {last.replace('_', ' ')} be?"
+            self.dialogue.awaiting = "which_field"
+            return (
+                "Which answer would you like to change: shop name, city, business type, "
+                "monthly volume, payment methods, or payer phones?"
+            )
         if kind == "recap":
             return _recap(snapshot)
         if isinstance(snapshot.get("verdict"), dict):
@@ -239,28 +250,18 @@ _ASIDE = {"chitchat", "pause", "recap", "undo", "change_request"}
 _ACT_SAVE = {"answer", "correct"}
 
 
-_NAMED = {
-    "shop name": "shop_name",
-    "shop's name": "shop_name",
-    "legal name": "shop_name",
-    "city": "city",
-    "business type": "business_type",
-    "volume": "monthly_volume",
-    "payment": "payment_methods",
-    "phone": "stores_payer_phones",
-    "phones": "stores_payer_phones",
-}
-
-
 def _recap(snapshot: dict) -> str:
     stored = answers(snapshot)
     if not stored:
         return "Nothing is saved yet."
-    parts = [
-        f"{name.replace('_', ' ')} is {DIGITS.sub('[number hidden]', str(value))}"
-        for name, value in stored.items()
-        if value
-    ]
+    parts = []
+    for name, value in stored.items():
+        if not value:
+            continue
+        shown = str(value)
+        if name != "monthly_volume":
+            shown = DIGITS.sub("[number hidden]", shown)
+        parts.append(f"{name.replace('_', ' ')} is {shown}")
     return "So far, " + "; ".join(parts) + "."
 
 
@@ -282,14 +283,10 @@ def _brief(acts: list[dict]) -> str:
 
 
 def _named_field(line: str) -> str | None:
-    match = re.search(
-        r"\b(shop(?:'s)? name|legal name|city|business type|volume|payment|phones?)\b",
-        line,
-        re.I,
-    )
+    match = FIELD_WORD.search(line)
     if not match:
         return None
-    return _NAMED.get(match.group(1).lower())
+    return FIELD_OF.get(match.group(1).lower())
 
 
 def _uses_acts(acts: list[dict], source: str) -> bool:

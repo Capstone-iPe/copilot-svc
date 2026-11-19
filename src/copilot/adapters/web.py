@@ -23,6 +23,7 @@ UPLOADS = {
     "dpa_addendum",
 }
 ACCEPT = [".pdf", ".jpg", ".jpeg", ".png"]
+_DOCS = "All the questions are done. Just the documents left. "
 ITEM = {
     "business_registration": "business registration",
     "owner_id": "owner's government ID",
@@ -59,9 +60,15 @@ class WebAdapter(Adapter):
         """Assistant lines for one turn. App appends them to ConversationView."""
         text = redact(reply.text, line) if reply.text else ""
         next_prompt = reply.prompt or ""
+        lead = ""
+        if next_prompt.startswith(_DOCS):
+            lead = _DOCS
+            next_prompt = next_prompt[len(_DOCS) :]
         asking_now = asking_for(reply.step)
         if asking_now in UPLOAD_TEXT and next_prompt.strip() == UPLOAD_TEXT[asking_now]:
             next_prompt = WEB_UPLOADS.get(asking_now, next_prompt)
+        if lead:
+            next_prompt = lead + next_prompt
         parts = []
         if text.strip():
             parts.append(text.strip())

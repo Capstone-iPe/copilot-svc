@@ -124,6 +124,29 @@ EDIT_CUE = re.compile(
 )
 QUESTION_WORD = re.compile(r"\b(?:why|what|how|when|where|who|which)\b", re.I)
 SMALL_TALK = {"hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "hmm"}
+# A line made only of these words is small talk, so "ok thanks" is not a shop name.
+CHAT_WORDS = {
+    "hi", "hello", "hey", "thanks", "thank", "you", "ok", "okay", "hmm", "cool",
+    "sure", "please", "yeah", "yep", "alright", "so", "much", "a", "lot", "welcome",
+}
+FIELD_WORD = re.compile(
+    r"\b(shop(?:'s)? name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b",
+    re.I,
+)
+FIELD_OF = {
+    "shop name": "shop_name",
+    "shop's name": "shop_name",
+    "legal name": "shop_name",
+    "company name": "shop_name",
+    "business name": "shop_name",
+    "the name": "shop_name",
+    "city": "city",
+    "business type": "business_type",
+    "volume": "monthly_volume",
+    "payment": "payment_methods",
+    "phone": "stores_payer_phones",
+    "phones": "stores_payer_phones",
+}
 FIELD_SYNONYM = (
     ("shop_name", re.compile(r"\b(?:shop name|legal name|company name|business name|the name|company|firm)\b", re.I)),
     ("city", re.compile(r"\bcity\b", re.I)),
