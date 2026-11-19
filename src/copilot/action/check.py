@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from copilot.action.closed import closed_error, normalize_closed
+from copilot.action.closed import CLOSED_FIELDS, closed_error, normalize_closed
 from copilot.words import EDIT_CUE, FIELD_OF, FIELD_WORD
 
 FIELDS = {
@@ -60,7 +60,7 @@ _BUSINESS = {
 }
 
 
-def check_acts(acts: list[dict], line: str, *, held: bool) -> list[dict]:
+def check_acts(acts: list[dict], line: str, *, held: bool, pending=None) -> list[dict]:
     kept: list[dict] = []
     for act in acts:
         kind = str(act.get("type") or "")
@@ -75,9 +75,13 @@ def check_acts(acts: list[dict], line: str, *, held: bool) -> list[dict]:
             continue
         field = str(act.get("field") or "")
         value = str(act.get("value_span") or "").strip()
+        if field not in FIELDS:
+            field = _fits_pending(pending, value, line)
+            if field:
+                act = {**act, "type": "answer", "field": field}
         if field not in FIELDS or not value or not _in_line(value, line):
             continue
-        if EDIT_CUE.search(value):
+        if EDIT_CUE.search(value) or _names_other(value, field):
             kept.append(_change(line))
             continue
         if str(act.get("confidence") or "high") == "low":
@@ -97,6 +101,26 @@ def check_acts(acts: list[dict], line: str, *, held: bool) -> list[dict]:
             value = normalize_closed(field, value)
         kept.append({**act, "field": field, "value_span": value})
     return kept
+
+
+def _fits_pending(pending, value: str, line: str) -> str:
+    """An invented field name can still be the question on screen, when the word fits it."""
+    if not isinstance(pending, dict) or pending.get("kind") != "field" or not value:
+        return ""
+    name = str(pending.get("name") or "")
+    if name not in FIELDS:
+        return ""
+    if name in CLOSED_FIELDS:
+        return name if closed_error(name, value) is None else ""
+    if EDIT_CUE.search(line) or _names_other(line, name):
+        return ""
+    return name
+
+
+def _names_other(value: str, field: str) -> bool:
+    match = FIELD_WORD.search(value)
+    named = FIELD_OF.get(match.group(1).lower()) if match else ""
+    return bool(named) and named != field
 
 
 def _change(line: str) -> dict:

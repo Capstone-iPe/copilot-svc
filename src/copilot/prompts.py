@@ -95,14 +95,24 @@ ACTS = (
     "other_shop",
     "out_of_scope",
 )
+READER_FIELDS = (
+    "shop_name",
+    "city",
+    "business_type",
+    "monthly_volume",
+    "payment_methods",
+    "stores_payer_phones",
+    "note",
+)
 READER_PROMPT = (
     "You read one merchant line in a shop onboarding chat. "
     'Reply with one JSON object: {"acts":[{"type","field","value_span","canonical"}],"confidence":"high"|"low"}.\n'
     "type is answer, correct, change_request, why, ask, upload, missing, submit, review_id, recap, "
     "undo, chitchat, pause, confirm_yes, confirm_no, other_shop, or out_of_scope.\n"
-    "value_span is copied from the line, or null. Never invent a value. Never use the whole line "
+    "value_span is copied from said only, or null. Never copy words from recent. Never invent a value. Never use the whole line "
     "as the value when the line is about a typo, a change, or what was already captured.\n"
-    "field is a known field name, or null.\n"
+    "field is shop_name, city, business_type, monthly_volume, payment_methods, "
+    "stores_payer_phones, note, or null. The kind of shop is business_type.\n"
     "canonical is only for business_type, payment_methods, or stores_payer_phones, else null.\n"
     "A typo or a change of an earlier answer is correct when the new value is in the line, "
     "otherwise change_request. It is not an answer to the pending field.\n"
@@ -111,6 +121,9 @@ READER_PROMPT = (
     "ask is any other question: what a word means, why something else is not enough, fees, MDR, "
     "or settlement. what is UPI, why isn't cash enough, and why isn't a lease enough are ask, "
     "even while another field is on screen.\n"
+    "If awaiting is confirm:FIELD, yes is confirm_yes and no is confirm_no. Any other line is read on its own.\n"
+    "If awaiting is value_for:FIELD, a new value in the line is correct for that field. "
+    "never mind, forget it, leave it, and cancel are confirm_no.\n"
     "A shop name that contains the word not, such as Why Not Cafe, is answer.\n"
     "Sharma Sweets in Pune, while the shop name is pending, is two answers: the name, then the city.\n"
     "Pune, but why is an answer and a why.\n"
@@ -126,7 +139,7 @@ READER_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "type": {"type": "string", "enum": list(ACTS)},
-                    "field": {"type": ["string", "null"]},
+                    "field": {"type": ["string", "null"], "enum": [*READER_FIELDS, None]},
                     "value_span": {"type": ["string", "null"]},
                     "canonical": {"type": ["string", "null"]},
                 },

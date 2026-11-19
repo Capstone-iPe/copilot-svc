@@ -73,10 +73,12 @@ def test_a_why_does_not_call_onb() -> None:
 
 def test_an_answer_uses_the_pending_field() -> None:
     onb = FakeOnb()
-    session = Session(FakeChat(), onb, FakeCorpus(), "app", STEP)
+    chat = FakeChat('{"acts":[{"type":"answer","field":"city","value_span":"Pune"}],"confidence":"high"}')
+    session = Session(chat, onb, FakeCorpus(), "app", STEP)
 
     asyncio.run(session.turn("Pune"))
 
+    assert chat.calls == 1
     assert ("save_answer", "city", "Pune") in onb.calls
     assert onb.calls[-1][0] == "next_step"
 

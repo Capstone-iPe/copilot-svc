@@ -65,10 +65,11 @@ class Session:
 
     async def _acts(self, line, acts, source, pending, snapshot, verdict) -> Reply:
         held = verdict is not None
-        checked = _ordered(check_acts(acts, line, held=held), pending, snapshot)
+        checked = _ordered(check_acts(acts, line, held=held, pending=pending), pending, snapshot)
         log.info("after check: %s", _brief(checked))
         texts: list[str] = []
         saved = False
+        prior_wait = self.dialogue.awaiting
         for act in checked:
             kind = str(act.get("type") or "")
             if kind in _ACT_SAVE:
@@ -117,6 +118,9 @@ class Session:
             if kind in _ASIDE:
                 texts.append(self._aside(kind, line, snapshot, pending, act))
                 continue
+        if self.dialogue.awaiting == prior_wait and prior_wait:
+            self.dialogue.awaiting = None
+            self.dialogue.proposed = None
         action = "save" if saved else str((checked or acts or [{"type": "again"}])[0].get("type") or "again")
         trace = {
             "stage": stage(pending, held),

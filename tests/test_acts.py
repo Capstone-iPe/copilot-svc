@@ -92,7 +92,8 @@ def test_an_unreadable_volume_asks_for_digits() -> None:
             return {"error": "volume_unreadable"}
 
     onb = Volume()
-    session, onb = _session(onb, asyncio.run(onb.next_step()))
+    note = '{"acts":[{"type":"answer","field":"monthly_volume","value_span":"120K"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
 
     reply = asyncio.run(session.turn("120K"))
 
@@ -102,14 +103,17 @@ def test_an_unreadable_volume_asks_for_digits() -> None:
     assert reply.step["pending"]["name"] == "monthly_volume"
 
 
-def test_a_plain_city_does_not_call_the_model() -> None:
+def test_a_plain_city_is_read_by_the_model() -> None:
     onb = Shop()
     onb.index = 1
     onb.answers = {"shop_name": "Sharma Sweets"}
-    session, onb = _session(onb, asyncio.run(onb.next_step()))
+    note = '{"acts":[{"type":"answer","field":"city","value_span":"Pune"}],"confidence":"high"}'
+    chat = Scripted(note)
+    session, onb = _session(onb, asyncio.run(onb.next_step()), chat)
 
     asyncio.run(session.turn("Pune"))
 
+    assert chat.calls == 1
     assert onb.answers["city"] == "Pune"
 
 
@@ -162,9 +166,12 @@ def test_a_typo_after_wait_is_not_a_pause() -> None:
 
 
 def test_small_talk_is_not_stored() -> None:
-    session, onb = _session()
+    chat = Scripted('{"acts":[{"type":"chitchat"}],"confidence":"high"}')
+    session, onb = _session(chat=chat)
 
     reply = asyncio.run(session.turn("ok"))
+
+    assert chat.calls == 1
 
     assert onb.answers == {}
     assert not any(call[0] == "save_answer" for call in onb.calls)
@@ -172,9 +179,13 @@ def test_small_talk_is_not_stored() -> None:
 
 
 def test_why_not_cafe_is_the_shop_name() -> None:
-    session, onb = _session()
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Why Not Cafe"}],"confidence":"high"}'
+    chat = Scripted(note)
+    session, onb = _session(chat=chat)
 
     asyncio.run(session.turn("Why Not Cafe"))
+
+    assert chat.calls == 1
 
     assert onb.answers["shop_name"] == "Why Not Cafe"
 
@@ -208,6 +219,9 @@ def test_a_typo_remark_is_not_stored_as_the_pending_field() -> None:
     assert "shop name" in reply.text.lower()
     assert reply.prompt == "What is the shop's legal name?"
 
+    session.chat = Scripted(
+        '{"acts":[{"type":"correct","field":"shop_name","value_span":"Balaji Supermart"}],"confidence":"high"}'
+    )
     reply = asyncio.run(session.turn("Balaji Supermart"))
 
     assert onb.answers["shop_name"] == "Balaji Supermart"
@@ -261,11 +275,15 @@ def test_a_city_and_a_why_save_only_the_city() -> None:
 
 
 def test_a_later_line_is_not_an_old_confirmation() -> None:
-    session, onb = _session()
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Pune"}],"confidence":"high"}'
+    chat = Scripted(note)
+    session, onb = _session(chat=chat)
     session.dialogue.awaiting = "confirm:shop_name"
     session.dialogue.proposed = {"field": "shop_name", "value": "Nope Stores"}
 
     reply = asyncio.run(session.turn("Pune"))
+
+    assert chat.calls == 1
 
     assert onb.answers["shop_name"] == "Pune"
     assert session.dialogue.awaiting is None
@@ -273,19 +291,25 @@ def test_a_later_line_is_not_an_old_confirmation() -> None:
 
 
 def test_never_mind_does_not_save_the_new_value() -> None:
-    session, onb = _session()
+    chat = Scripted('{"acts":[{"type":"confirm_no"}],"confidence":"high"}')
+    session, onb = _session(chat=chat)
     session.dialogue.awaiting = "value_for:shop_name"
 
     reply = asyncio.run(session.turn("never mind"))
+
+    assert chat.calls == 1
 
     assert onb.answers == {}
     assert "leave that" in reply.text.lower()
 
 
 def test_ok_thanks_is_not_a_shop_name() -> None:
-    session, onb = _session()
+    chat = Scripted('{"acts":[{"type":"chitchat"}],"confidence":"high"}')
+    session, onb = _session(chat=chat)
 
     reply = asyncio.run(session.turn("ok thanks"))
+
+    assert chat.calls == 1
 
     assert onb.answers == {}
     assert "welcome" in reply.text.lower()
@@ -323,6 +347,79 @@ def test_undo_asks_for_the_last_saved_field() -> None:
     assert onb.answers["shop_name"] == "Sharma Sweets"
     assert "shop name" in reply.text.lower()
     assert session.dialogue.awaiting == "value_for:shop_name"
+
+
+def test_an_invented_field_name_still_saves_the_shop_kind() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"correct","field":"shop_type","value_span":"Retail","canonical":null}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("Retail"))
+
+    assert onb.answers["business_type"] == "Retail"
+    assert reply.text.startswith("Got it, Retail.")
+
+
+def test_an_invented_field_name_does_not_save_a_correction_as_the_city() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Puma"}
+    note = (
+        '{"acts":[{"type":"correct","field":"shop_type","value_span":"oh.. that wasn\'t shop\'s name"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("oh.. that wasn't shop's name"))
+
+    assert onb.answers == {"shop_name": "Puma"}
+
+
+def test_a_why_copied_from_an_earlier_turn_does_not_replace_the_city() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Puma"}
+    note = '{"acts":[{"type":"why","field":"city","value_span":"why do you need that?"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("Pune"))
+
+    assert onb.answers["city"] == "Pune"
+    assert reply.text.startswith("Got it, Pune.")
+
+
+def test_a_denial_of_the_shop_name_is_not_saved_as_the_city() -> None:
+    onb = Shop()
+    onb.answers = {"shop_name": "FooBar"}
+    onb.index = 1
+    note = '{"acts":[{"type":"change_request","field":"shop_name"}],"confidence":"high"}'
+    chat = Scripted(note)
+    session, onb = _session(onb, asyncio.run(onb.next_step()), chat)
+
+    reply = asyncio.run(session.turn("oh.. that wasn't shop's name"))
+
+    assert chat.calls == 1
+    assert onb.answers == {"shop_name": "FooBar"}
+    assert "shop name" in reply.text.lower()
+    assert reply.step["pending"]["name"] == "city"
+
+
+def test_a_bad_city_read_of_the_shop_name_is_not_saved() -> None:
+    onb = Shop()
+    onb.answers = {"shop_name": "FooBar"}
+    onb.index = 1
+    note = (
+        '{"acts":[{"type":"answer","field":"city","value_span":"oh.. that wasn\'t shop\'s name"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("oh.. that wasn't shop's name"))
+
+    assert "city" not in onb.answers
+    assert onb.answers["shop_name"] == "FooBar"
+    assert "shop name" in reply.text.lower()
 
 
 def test_the_first_question_stays_canonical() -> None:

@@ -1,4 +1,4 @@
-"""One merchant line becomes a list of acts. The model reads every line the fast path does not."""
+"""One merchant line becomes a list of acts. The model reads every line the guard does not."""
 
 from __future__ import annotations
 
@@ -13,38 +13,20 @@ from copilot.intent.guard import guard_intent
 from copilot.intent.reader import read_intent
 from copilot.prompts import READER_PROMPT, READER_SCHEMA
 from copilot.say.questions import question_for
-from copilot.words import (
-    CHAT_WORDS,
-    DIGITS,
-    EDIT_CUE,
-    FAST_CUE,
-    FIELD_OF,
-    FIELD_SYNONYM,
-    FIELD_WORD,
-    QUESTION_WORD,
-    SMALL_TALK,
-    THINK,
-)
+from copilot.words import DIGITS, EDIT_CUE, FIELD_OF, FIELD_WORD, THINK
 
 log = logging.getLogger("copilot")
 
-_PAUSE = re.compile(r"^(?:wait|later)\b|\blet me check\b", re.I)
-_YES = re.compile(r"^(?:yes|y|yeah|haan)\b", re.I)
-_NO = re.compile(r"^(?:no|n|nahi)\b", re.I)
 _RECAP = re.compile(
     r"\b(?:what have i|what values|what answers|show my|have you captured|captured so far)\b",
     re.I,
 )
-_NAME_IN_CITY = re.compile(r"^.+\s+in\s+\S.+$", re.I)
 _SIDE = re.compile(r"\b(?:what|how|when|where|who|which)\b|\b(?:isn'?t|is not|not enough)\b", re.I)
-_CANCEL = re.compile(
-    r"^(?:never mind|forget it|no,? it'?s fine|leave it|don'?t change(?: it)?|cancel(?: that)?)$",
-    re.I,
-)
+_QUESTION = re.compile(r"\?|\b(?:why|what|how|when|where|who|which)\b", re.I)
 
 
 def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> tuple[list[dict], str]:
-    """Guard, exact command, narrow fast path, otherwise one model read."""
+    """Guard, an exact command, otherwise one model read. Free text is not saved unread."""
     guarded = guard_intent(line, pending)
     if guarded:
         log.info("model not called: guard %s", guarded)
@@ -53,26 +35,40 @@ def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) 
     if command:
         log.info("model not called: command %s", command)
         return [{"type": command}], "command"
-    talk = _talk(line)
-    if talk:
-        log.info("model not called: %s", talk)
-        return [{"type": talk}], "field"
-    waiting = _waiting(line, dialogue)
-    if waiting:
-        log.info("model not called: waiting for %s", dialogue.awaiting)
-        return waiting, "awaiting"
-    if _fast_answer(line, pending):
-        log.info("model not called: fast path")
-        return [{"type": "answer", "field": str(pending["name"]), "value_span": line.strip(), "confidence": "high"}], "fast"
-    parsed = _model_acts(line, pending, held, snapshot, complete, dialogue)
+    parsed = _about_this_line(line, _model_acts(line, pending, held, snapshot, complete, dialogue))
     if _RECAP.search(line):
         return [{"type": "recap"}], "model" if parsed is not None else "fallback"
     if parsed:
         return _aside(line, parsed), "model"
-    if EDIT_CUE.search(line):
+    if EDIT_CUE.search(line) or _other_field(line, pending):
         return [_change(line)], "fallback"
     intent, source = read_intent(line, pending, held, complete)
     return [_as_act(intent, line, pending)], source
+
+
+def _about_this_line(line: str, acts: list[dict] | None) -> list[dict] | None:
+    """Drop an act whose words were copied from an earlier turn."""
+    if not acts:
+        return None
+    kept = []
+    for act in acts:
+        span = str(act.get("value_span") or "").strip()
+        kind = str(act.get("type") or "")
+        if span and not _contains(span, line):
+            log.info("model act ignored: %s is not in this line", span)
+            continue
+        if kind in {"why", "ask"} and not span and not _QUESTION.search(line):
+            log.info("model act ignored: %s does not match this line", kind)
+            continue
+        kept.append(act)
+    return kept or None
+
+
+def _contains(span: str, line: str) -> bool:
+    def norm(text: str) -> str:
+        return re.sub(r"\s+", " ", text).strip().casefold()
+
+    return norm(span) in norm(line)
 
 
 def _aside(line: str, acts: list[dict]) -> list[dict]:
@@ -86,61 +82,6 @@ def _aside(line: str, acts: list[dict]) -> list[dict]:
         else:
             kept.append(act)
     return kept
-
-
-def _talk(line: str) -> str | None:
-    low = line.strip().lower().rstrip("?.! ")
-    if low in SMALL_TALK or low == "👍" or _chatty(line):
-        return "chitchat"
-    text = line.strip()
-    if _PAUSE.search(text) and not EDIT_CUE.search(text) and not FIELD_WORD.search(text):
-        return "pause"
-    return None
-
-
-def _waiting(line: str, dialogue: DialogueState) -> list[dict] | None:
-    awaiting = dialogue.awaiting or ""
-    if awaiting.startswith("confirm:"):
-        if _YES.match(line.strip()):
-            return [{"type": "confirm_yes"}]
-        if _NO.match(line.strip()):
-            return [{"type": "confirm_no"}]
-        dialogue.awaiting = None
-        dialogue.proposed = None
-        return None
-    if awaiting.startswith("value_for:") and _CANCEL.match(line.strip().rstrip("?.! ")):
-        dialogue.awaiting = None
-        return [{"type": "confirm_no"}]
-    if awaiting.startswith("value_for:") and not line.strip().endswith("?") and not QUESTION_WORD.search(line):
-        field = awaiting.split(":", 1)[1]
-        return [{"type": "correct", "field": field, "value_span": line.strip(), "confidence": "high"}]
-    if awaiting == "which_field":
-        field = FIELD_OF.get(_field_word(line) or "")
-        if field:
-            return [{"type": "change_request", "field": field}]
-    return None
-
-
-def _fast_answer(line: str, pending) -> bool:
-    """Section 4.5. Every condition must hold, or the line goes to the model."""
-    if not pending or pending.get("kind") != "field":
-        return False
-    text = line.strip()
-    words = text.split()
-    if not words or len(words) > 5 or text.endswith("?"):
-        return False
-    if QUESTION_WORD.search(text) or FAST_CUE.search(text):
-        return False
-    low = text.lower().rstrip("?.! ")
-    if low in SMALL_TALK or any(token in CHAT_WORDS for token in re.findall(r"[a-z']+", low)):
-        return False
-    name = str(pending.get("name") or "")
-    for field, pattern in FIELD_SYNONYM:
-        if field != name and pattern.search(text):
-            return False
-    if name == "shop_name" and _NAME_IN_CITY.match(text):
-        return False
-    return True
 
 
 def _as_act(intent: str, line: str, pending) -> dict:
@@ -159,9 +100,10 @@ def _change(line: str) -> dict:
     return act
 
 
-def _chatty(line: str) -> bool:
-    words = re.findall(r"[a-z']+", line.lower())
-    return bool(words) and all(word in CHAT_WORDS for word in words)
+def _other_field(line: str, pending) -> bool:
+    named = FIELD_OF.get(_field_word(line) or "")
+    current = str(pending.get("name") or "") if isinstance(pending, dict) else ""
+    return bool(named) and named != current
 
 
 def _field_word(line: str) -> str | None:
