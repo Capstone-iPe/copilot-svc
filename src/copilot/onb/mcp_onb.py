@@ -12,6 +12,12 @@ from copilot.onb.sign_in import Tokens, Wait, loopback
 
 log = logging.getLogger("copilot")
 
+# A free Render service answers 502, or drops the connection, while it boots.
+# Three short tries stay inside the website's single-request wait.
+_DELAYS = (0, 5, 8)
+_WAKE = {502, 503, 504}
+_HTTP_TIMEOUT = 10
+
 
 def tool_payload(result: object) -> dict:
     structured = getattr(result, "structuredContent", None) or getattr(result, "structured_content", None)
@@ -84,12 +90,28 @@ class LiveOnb(OnbTools):
         return await self._run("get_review", application_id)
 
     async def _run(self, method: str, *args, **kwargs):
-        client, http = await connect_bearer(self.mcp_url, self.bearer_fn)
-        try:
-            return await getattr(McpOnb(client), method)(*args, **kwargs)
-        finally:
-            await client.__aexit__(None, None, None)
-            await http.aclose()
+        last: Exception | None = None
+        for delay in _DELAYS:
+            if delay:
+                await asyncio.sleep(delay)
+            try:
+                client, http = await connect_bearer(self.mcp_url, self.bearer_fn)
+            except OnbAsleep as exc:
+                last = exc
+                log.info("ONB connect failed (%s); retrying %s", exc, method)
+                continue
+            try:
+                return await getattr(McpOnb(client), method)(*args, **kwargs)
+            except Exception as exc:
+                last = exc
+                if not await _retry_tool(exc, http, self.mcp_url):
+                    raise
+                log.info("ONB %s failed while the service wakes; retrying", method)
+            finally:
+                await client.__aexit__(None, None, None)
+                await http.aclose()
+        assert last is not None
+        raise last
 
 
 async def call(client, name: str, arguments: dict) -> dict:
@@ -137,7 +159,7 @@ async def connect_bearer(mcp_url: str, bearer_fn):
             request.headers["Authorization"] = f"Bearer {bearer_fn()}"
             yield request
 
-    http = httpx2.AsyncClient(auth=_Bearer(), follow_redirects=False, timeout=60)
+    http = httpx2.AsyncClient(auth=_Bearer(), follow_redirects=False, timeout=_HTTP_TIMEOUT)
     transport = streamable_http_client(mcp_url, http_client=http)
     client = Client(transport, client_info=Implementation(name="ipe-copilot", version="0.0.2"))
     try:
@@ -146,12 +168,43 @@ async def connect_bearer(mcp_url: str, bearer_fn):
         # mcp 2.3 maps HTTP 401 to a generic MCPError ("Server returned an error
         # response") that hides invalid_token. Probe once so callers can tell auth apart.
         status = await _mcp_status(http, mcp_url)
-        if status in (401, 403):
-            await http.aclose()
-            raise RuntimeError("invalid_token: ONB rejected the Google access token") from exc
         await http.aclose()
+        if status in (401, 403):
+            raise RuntimeError("invalid_token: ONB rejected the Google access token") from exc
+        if status in _WAKE or status is None:
+            raise OnbAsleep(status) from exc
         raise
     return client, http
+
+
+class OnbAsleep(Exception):
+    """ONB's front door returned a start-up page, or the connection never opened."""
+
+    def __init__(self, status: int | None) -> None:
+        self.status = status
+        shown = "unreachable" if status is None else str(status)
+        super().__init__(f"ONB is waking up ({shown})")
+
+
+def _transport_failure(exc: BaseException) -> bool:
+    name = type(exc).__name__.lower()
+    text = str(exc).lower()
+    if "invalid_token" in text or "401" in text or "403" in text:
+        return False
+    if any(part in name for part in ("timeout", "connect", "network", "protocol")):
+        return True
+    return any(part in text for part in ("timed out", "timeout", "connection reset", "connect error"))
+
+
+async def _retry_tool(exc: BaseException, http, mcp_url: str) -> bool:
+    if "invalid_token" in str(exc).lower():
+        return False
+    status = await _mcp_status(http, mcp_url)
+    if status in (401, 403):
+        return False
+    if status in _WAKE or status is None:
+        return True
+    return _transport_failure(exc)
 
 
 async def _mcp_status(http, mcp_url: str) -> int | None:

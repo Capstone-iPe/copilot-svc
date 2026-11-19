@@ -27,6 +27,7 @@ from pydantic import BaseModel
 
 from copilot.adapters.web import WebAdapter, new_message
 from copilot.identity import merchant_call_name
+from copilot.onb.mcp_onb import OnbAsleep
 from copilot.say.questions import answers as stored_answers
 from copilot.session import Session
 
@@ -136,6 +137,14 @@ def _exc_text(exc: BaseException) -> str:
 
 
 def _onb_http_error(exc: BaseException, *, opening: bool = False) -> HTTPException:
+    if isinstance(exc, OnbAsleep):
+        return HTTPException(
+            status_code=503,
+            detail={
+                "code": "onb_unavailable",
+                "message": "The onboarding service is waking up. Try again in a moment.",
+            },
+        )
     text = _exc_text(exc).lower()
     # mcp 2.3 often surfaces ONB's 401 as "Server returned an error response" only;
     # connect_bearer rewrites that to invalid_token after a status probe.

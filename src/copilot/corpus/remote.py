@@ -12,9 +12,11 @@ from copilot.config import corpus_api_key, corpus_search_url
 
 log = logging.getLogger("copilot")
 
-# Free Render services return HTML 502 while waking; retry a few times.
+# Free Render services return HTML 502 while waking. Three short tries stay
+# inside the website's single-request wait.
 _RETRY_STATUSES = {502, 503, 504}
-_RETRY_DELAYS = (0, 3, 8, 15)
+_RETRY_DELAYS = (0, 5, 8)
+_TIMEOUT = 10
 
 
 class RemoteCorpus:
@@ -66,15 +68,20 @@ class RemoteCorpus:
                 time.sleep(delay)
             request = urllib.request.Request(url, data=data, method=method, headers=headers)
             try:
-                with urllib.request.urlopen(request, timeout=90) as response:
-                    return json.load(response)
+                with urllib.request.urlopen(request, timeout=_TIMEOUT) as response:
+                    try:
+                        return json.load(response)
+                    except json.JSONDecodeError as exc:
+                        last_error = RuntimeError(f"corpus {method} {path} was not JSON")
+                        log.info("corpus %s %s non-JSON body; retrying", method, path)
+                        last_error.__cause__ = exc
             except urllib.error.HTTPError as exc:
                 detail = exc.read().decode("utf-8", errors="replace")
                 last_error = RuntimeError(f"corpus {method} {path} failed HTTP {exc.code}: {detail}")
                 if exc.code not in _RETRY_STATUSES:
                     raise last_error from exc
                 log.info("corpus %s %s HTTP %s; retrying", method, path, exc.code)
-            except urllib.error.URLError as exc:
+            except (urllib.error.URLError, TimeoutError, OSError) as exc:
                 last_error = RuntimeError(f"corpus {method} {path} failed: {exc}")
                 log.info("corpus %s %s URL error; retrying", method, path)
         assert last_error is not None
