@@ -26,10 +26,10 @@ def _memory_onb():
     return MemoryOnb()
 
 
-async def local_start(bearer: str = "") -> tuple[Session, dict]:
+async def local_start(bearer: str = "", application_id: str | None = None) -> tuple[Session, dict]:
     del bearer  # MemoryOnb ignores auth; FE still sends a bearer to the API.
     onb = _memory_onb()
-    step = await onb.next_step()
+    step = await onb.next_step(application_id) if application_id else await onb.next_step()
     corpus = RemoteCorpus()
     session = Session(QwenChat(), onb, corpus, step["application_id"], step)
     return session, step

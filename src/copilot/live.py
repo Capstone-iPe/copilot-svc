@@ -14,10 +14,10 @@ from copilot.session import Session
 log = logging.getLogger("copilot")
 
 
-async def live_start(bearer: str) -> tuple[Session, dict]:
+async def live_start(bearer: str, application_id: str | None = None) -> tuple[Session, dict]:
     token = AccessToken(bearer)
     onb = LiveOnb(mcp_url(), token)
-    step = await onb.next_step()
+    step = await onb.next_step(application_id) if application_id else await onb.next_step()
     session = Session(QwenChat(), onb, RemoteCorpus(), step["application_id"], step)
     session.access_token = token
     log.info("opened live ONB conversation")

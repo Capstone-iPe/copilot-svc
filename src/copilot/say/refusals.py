@@ -7,13 +7,13 @@ from copilot.words import ASSIGNEE_WORDS
 
 _LINES = {
     "readback": "I can't repeat identity, account, or phone numbers in the chat, including the last four digits. ONB-POL-004.",
-    "other_shop": "This chat is only about the shop in this application. ONB-POL-004 §5.",
-    "out_of_scope": "The onboarding policies do not state that, so I won't give a figure. ONB-POL-004 §5.",
+    "other_shop": "I can only help with this application, not another shop. ONB-POL-004 §5.",
+    "out_of_scope": "I can't help with that here. It's outside onboarding. ONB-POL-004 §5.",
     "no_file": "No file came through. Saying it is attached does not count. ONB-POL-001 §2.",
     "not_ready": "Submit comes after the last question.",
     "no_review_yet": "No review is open yet. A review opens only after you submit.",
-    "change_how": "To change an answer, type the field and the new value, such as city=Pune.",
-    "bad_phones": "Please answer yes or no.",
+    "change_how": "Tell me which answer to change and what it should be. For example, the city is Pune.",
+    "bad_phones": "Just a yes or no is fine: will the shop store payer phone numbers?",
     "bad_business_type": (
         "Please name the kind of shop, such as restaurant, grocery, retail, "
         "or another clear type (cafe, kirana, salon, gym)."

@@ -90,6 +90,44 @@ def test_health_and_one_turn() -> None:
     assert listed.json()["conversations"][0]["id"] == APP_ID
 
 
+def test_resume_sends_the_application_id() -> None:
+    seen: dict[str, str | None] = {}
+
+    async def _resume(bearer: str, application_id: str | None = None):
+        assert bearer
+        seen["id"] = application_id
+        onb = FakeOnb()
+        onb.step = {
+            "application_id": application_id or APP_ID,
+            "pending": {"kind": "field", "name": "city"},
+            "snapshot": {"answers": {"shop_name": "Lotus Tea House"}, "files": {}},
+        }
+        step = await onb.next_step(application_id)
+        session = Session(RecordedChat({}), onb, EmptyCorpus(), step["application_id"], step)
+        return session, step
+
+    client = TestClient(create_app(_resume))
+    opened = client.post(
+        "/v1/conversations",
+        headers=AUTH,
+        json={"application_id": "app_resume01"},
+    )
+    assert opened.status_code == 201
+    assert seen["id"] == "app_resume01"
+    conv = opened.json()["conversation"]
+    assert conv["id"] == "app_resume01"
+    assert conv["messages"][0]["text"].startswith("Welcome back")
+    assert "Lotus Tea House" in conv["messages"][0]["text"]
+    assert "city" in conv["messages"][1]["text"].lower()
+    again = client.post(
+        "/v1/conversations",
+        headers=AUTH,
+        json={"application_id": "app_resume01"},
+    )
+    assert again.status_code == 200
+    assert again.json()["conversation"]["id"] == "app_resume01"
+
+
 def test_missing_bearer_is_401() -> None:
     client = TestClient(create_app(_start))
     r = client.post("/v1/conversations", headers={"X-Merchant-Id": "google:test"})

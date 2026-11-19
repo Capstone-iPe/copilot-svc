@@ -16,6 +16,7 @@ Pills are minimal (upload / submit only). Suggestion chips stay off.
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
@@ -26,6 +27,7 @@ from pydantic import BaseModel
 
 from copilot.adapters.web import WebAdapter, new_message
 from copilot.identity import merchant_call_name
+from copilot.say.questions import answers as stored_answers
 from copilot.session import Session
 
 SessionFactory = Callable[[str], Awaitable[tuple[Session, dict]]]
@@ -184,9 +186,25 @@ def _onb_http_error(exc: BaseException, *, opening: bool = False) -> HTTPExcepti
     )
 
 
-async def _open_session(bearer: str) -> tuple[Session, dict]:
+async def _application_id(request: Request) -> str | None:
+    raw = await request.body()
+    if not raw:
+        return None
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    value = str(payload.get("application_id") or "").strip()
+    return value or None
+
+
+async def _open_session(bearer: str, application_id: str | None = None) -> tuple[Session, dict]:
     assert _start is not None
     try:
+        if application_id:
+            return await _start(bearer, application_id)
         return await _start(bearer)
     except Exception as exc:
         log.exception("live ONB open failed")
@@ -267,21 +285,29 @@ async def health() -> dict:
 
 @app.post("/v1/conversations", status_code=201)
 async def open_conversation(
+    request: Request,
     authorization: str | None = Header(default=None),
     x_merchant_id: str | None = Header(default=None),
-) -> dict:
+) -> JSONResponse:
     if _start is None:
         raise HTTPException(status_code=500, detail={"code": "bad_request", "message": "start_not_configured"})
     merchant_id = _merchant(x_merchant_id)
     bearer = _bearer(authorization)
-    session, step = await _open_session(bearer)
+    application_id = await _application_id(request)
+    if application_id:
+        existing = conversations.get(application_id)
+        if existing is not None and existing.merchant_id == merchant_id:
+            return JSONResponse({"conversation": _view(existing)})
+    session, step = await _open_session(bearer, application_id)
     cid = str(step.get("application_id") or "")
     if not cid or step.get("error"):
         raise HTTPException(
             status_code=502,
             detail={"code": "onb_unavailable", "message": str(step.get("error") or "no_conversation")},
         )
-    opened = adapter.open(step, merchant_name=merchant_call_name(bearer))
+    snapshot = step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {}
+    returning = bool(application_id and stored_answers(snapshot))
+    opened = adapter.open(step, merchant_name=merchant_call_name(bearer), returning=returning)
     conv = Conversation(id=cid, merchant_id=merchant_id, session=session)
     _apply_open(conv, opened)
     conversations[cid] = conv

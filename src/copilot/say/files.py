@@ -19,6 +19,15 @@ def file_sentence(slot: str, facts: dict) -> str:
     return f"The {words} was not accepted{because}. The same slot stays open. ONB-POL-001 §2."
 
 
+_FIELD_LABEL = {
+    "shop_name": "shop name",
+    "city": "city",
+    "business_type": "business type",
+    "monthly_volume": "monthly volume",
+    "payment_methods": "payment methods",
+    "stores_payer_phones": "payer phones",
+    "note": "note",
+}
 _ONB_ERRORS = {
     "phones_not_yes_or_no": "Please answer yes or no.",
     "volume_unreadable": "Please give the monthly volume in digits, such as ₹12,00,000 or 12 lakh.",
@@ -44,7 +53,11 @@ def result_reply(action: dict, results: list[dict], answers: dict) -> tuple[str,
 
 def _parts(action: dict, results: list[dict]) -> list[str]:
     if action["action"] == "save":
-        return ["Saved."]
+        value = str(action.get("value") or "").strip()
+        if action.get("correct"):
+            label = _FIELD_LABEL.get(str(action.get("field") or ""), "answer")
+            return [f"No problem, I've updated the {label} to {value}."]
+        return [f"Got it, {value}."] if value else ["Got it."]
     if action["action"] == "file":
         return [file_sentence(action["slot"], results[0])]
     if action["action"] == "missing":

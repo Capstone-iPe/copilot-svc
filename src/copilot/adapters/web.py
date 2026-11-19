@@ -10,8 +10,9 @@ import uuid
 
 from copilot.adapters.base import Adapter
 from copilot.reply import Reply
-from copilot.say.greeting import welcome_text
-from copilot.say.questions import answers, prompt_for
+from copilot.say.greeting import welcome_back, welcome_text
+from copilot.say.questions import UPLOADS as UPLOAD_TEXT
+from copilot.say.questions import WEB_UPLOADS, answers, prompt_for
 from copilot.say.redact import redact
 
 UPLOADS = {
@@ -32,20 +33,22 @@ ITEM = {
 
 
 class WebAdapter(Adapter):
-    def open(self, step: dict, *, merchant_name: str | None = None) -> dict:
+    def open(self, step: dict, *, merchant_name: str | None = None, returning: bool = False) -> dict:
         """Welcome, then the first question — two assistant messages, same as CLI."""
         asking = asking_for(step)
-        welcome = welcome_text(merchant_name)
-        question = (prompt_for(step) or "").strip()
+        snapshot = step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {}
+        welcome = welcome_back(merchant_name, snapshot) if returning else welcome_text(merchant_name)
+        question = (prompt_for(step, web=True) or "").strip()
         now = _now()
         messages = [_message("assistant", welcome, now)]
         if question:
             messages.append(_message("assistant", question, now))
+        shop = answers(snapshot).get("shop_name")
         return {
             "asking": asking,
             "messages": messages,
             "prompt": prompt_view(asking),
-            "shop_name": None,
+            "shop_name": str(shop) if shop else None,
             "status": "DRAFT",
             "review_id": None,
             "result": None,
@@ -56,6 +59,9 @@ class WebAdapter(Adapter):
         """Assistant lines for one turn. App appends them to ConversationView."""
         text = redact(reply.text, line) if reply.text else ""
         next_prompt = reply.prompt or ""
+        asking_now = asking_for(reply.step)
+        if asking_now in UPLOAD_TEXT and next_prompt.strip() == UPLOAD_TEXT[asking_now]:
+            next_prompt = WEB_UPLOADS.get(asking_now, next_prompt)
         parts = []
         if text.strip():
             parts.append(text.strip())
