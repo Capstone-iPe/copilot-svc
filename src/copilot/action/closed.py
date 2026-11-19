@@ -67,8 +67,54 @@ _PAYMENT_RE = re.compile(
     r"\b(?:" + "|".join(re.escape(p) for p in sorted(_PAYMENT_WORDS, key=len, reverse=True)) + r")\b",
     re.I,
 )
+# Cafe and dhaba are restaurant. Kirana is grocery. The same map ONB uses at the verdict.
+_BUSINESS_CANON = {
+    "restaurant": "restaurant",
+    "cafe": "restaurant",
+    "coffee shop": "restaurant",
+    "dhaba": "restaurant",
+    "grocery": "grocery",
+    "kirana": "grocery",
+    "retail": "retail",
+}
+_PAYMENT_CANON = {
+    "upi": "UPI",
+    "card": "cards",
+    "cards": "cards",
+    "cash": "cash",
+    "wallet": "wallet",
+    "wallets": "wallet",
+    "netbanking": "netbanking",
+    "net banking": "netbanking",
+    "neft": "neft",
+    "rtgs": "rtgs",
+    "imps": "imps",
+    "bharatqr": "bharatqr",
+    "qr": "bharatqr",
+}
+_NEGATED = re.compile(
+    r"\b(?:not|no|isn'?t|aren'?t|wasn'?t|weren'?t|nahi|nahin)\b(?:\s+(?:a|an|the|bhai))?\s*$",
+    re.I,
+)
 
 CLOSED_FIELDS = frozenset({"business_type", "payment_methods", "stores_payer_phones"})
+
+
+def list_value(field: str, text: str) -> str | None:
+    """The closed-list value supported by a word in text. A negated word does not count."""
+    if field == "business_type":
+        phrases = _positive(text, _BUSINESS_RE)
+        if not phrases:
+            return None
+        return _BUSINESS_CANON.get(phrases[-1], phrases[-1])
+    if field == "payment_methods":
+        labels = []
+        for word in _positive(text, _PAYMENT_RE):
+            label = _PAYMENT_CANON.get(word, word)
+            if label not in labels:
+                labels.append(label)
+        return ", ".join(labels) if labels else None
+    return None
 
 
 def closed_error(field: str, value: str) -> str | None:
@@ -77,20 +123,42 @@ def closed_error(field: str, value: str) -> str | None:
     if field == "stores_payer_phones":
         return None if _phone_token(text) is not None else "bad_phones"
     if field == "business_type":
-        return None if _BUSINESS_RE.search(text) else "bad_business_type"
+        return None if list_value(field, text) else "bad_business_type"
     if field == "payment_methods":
-        return None if _PAYMENT_RE.search(text) else "bad_payment_methods"
+        return None if list_value(field, text) else "bad_payment_methods"
     return None
 
 
 def normalize_closed(field: str, value: str) -> str:
-    """Store phones in a form ONB accepts. Other closed fields stay as typed."""
+    """Store a closed answer as the list value. Phones stay yes or no, as typed."""
     text = value.strip()
-    if field != "stores_payer_phones":
+    if field == "stores_payer_phones":
+        if _phone_token(text) == "nahi":
+            return "No"
         return text
-    if _phone_token(text) == "nahi":
-        return "No"
-    return text
+    return list_value(field, text) or text
+
+
+def _positive(text: str, pattern: re.Pattern[str]) -> list[str]:
+    found = []
+    previous = 0
+    for match in pattern.finditer(text):
+        before = text[previous:match.start()]
+        after = text[match.end(): match.end() + 16]
+        if _negated(before, after):
+            previous = match.end()
+            continue
+        found.append(match.group(0).lower())
+        previous = match.end()
+    return found
+
+
+def _negated(before: str, after: str) -> bool:
+    if re.match(r"\s*(?:nahi|nahin)\b", after, re.I):
+        return True
+    if "," in before:
+        before = before.rsplit(",", 1)[-1]
+    return _NEGATED.search(before) is not None
 
 
 def _phone_token(value: str) -> str | None:

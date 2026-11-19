@@ -321,18 +321,26 @@ def test_closed_fields_accept_listed_values() -> None:
     assert apply_decision("We run a small kirana", "answer", kind, False, SLOTS) == {
         "action": "save",
         "field": "business_type",
-        "value": "We run a small kirana",
+        "value": "grocery",
     }
     assert apply_decision("Chit fund counter", "answer", kind, False, SLOTS) == {
         "action": "save",
         "field": "business_type",
-        "value": "Chit fund counter",
+        "value": "chit fund",
     }
     assert apply_decision("UPI and cards", "answer", pay, False, SLOTS) == {
         "action": "save",
         "field": "payment_methods",
-        "value": "UPI and cards",
+        "value": "UPI, cards",
     }
+    assert apply_decision("it's a dhaba", "answer", kind, False, SLOTS)["value"] == "restaurant"
+    assert apply_decision("a salon", "answer", kind, False, SLOTS)["value"] == "salon"
+    assert apply_decision("UPI and cash both", "answer", pay, False, SLOTS)["value"] == "UPI, cash"
+    assert apply_decision("we aren't a dhaba", "answer", kind, False, SLOTS) == {
+        "action": "refuse",
+        "reason": "bad_business_type",
+    }
+    assert apply_decision("resturant", "answer", kind, False, SLOTS)["action"] == "refuse"
 
 
 def test_closed_fields_refuse_values_outside_the_set() -> None:

@@ -6,6 +6,7 @@ import json
 import logging
 
 from copilot.action.check import check_acts
+from copilot.action.closed import list_value
 from copilot.action.decide import apply_decision
 from copilot.action.slots import slot_states
 from copilot.chat.chat_model import ChatModel
@@ -60,12 +61,24 @@ class Session:
         if action.get("action") == "save":
             self.dialogue.last_saved = str(action.get("field") or "") or None
             self.dialogue.focus = self.dialogue.last_saved
+            self.dialogue.remember(self.dialogue.last_saved or "", str(action.get("value") or ""))
         self.dialogue.note("assistant", reply)
         return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
 
     async def _acts(self, line, acts, source, pending, snapshot, verdict) -> Reply:
         held = verdict is not None
-        checked = _ordered(check_acts(acts, line, held=held, pending=pending), pending, snapshot)
+        checked = _ordered(
+            check_acts(
+                acts,
+                line,
+                held=held,
+                pending=pending,
+                earlier=self.dialogue.values,
+                last_saved=self.dialogue.last_saved,
+            ),
+            pending,
+            snapshot,
+        )
         log.info("after check: %s", _brief(checked))
         texts: list[str] = []
         saved = False
@@ -91,6 +104,10 @@ class Session:
             if kind == "refuse":
                 texts.append(refusal(str(act.get("reason") or "again"), verdict, line))
                 break
+            if kind == "recall_miss":
+                label = str(act.get("field") or "answer").replace("_", " ")
+                texts.append(f"I only have the current {label}, so there isn't an earlier one to put back.")
+                continue
             if kind == "confirm":
                 field = str(act.get("field") or "")
                 value = str(act.get("value_span") or "")
@@ -140,6 +157,9 @@ class Session:
     async def _save_act(self, act: dict, correct: bool) -> tuple[str | None, bool]:
         field = str(act.get("field") or "")
         value = str(act.get("value_span") or "").strip()
+        picked = list_value(field, value)
+        if picked:
+            value = picked
         pending, snapshot, _verdict, _held = _view(self.step)
         stored = answers(snapshot)
         is_pending = (
@@ -160,6 +180,7 @@ class Session:
         reply, _new = result_reply(action, [result], stored)
         self.dialogue.last_saved = field
         self.dialogue.focus = field
+        self.dialogue.remember(field, value)
         if self.dialogue.awaiting == f"value_for:{field}":
             self.dialogue.awaiting = None
         self.step = await self.onb.next_step(self.application_id)

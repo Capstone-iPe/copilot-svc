@@ -357,8 +357,8 @@ def test_an_invented_field_name_still_saves_the_shop_kind() -> None:
 
     reply = asyncio.run(session.turn("Retail"))
 
-    assert onb.answers["business_type"] == "Retail"
-    assert reply.text.startswith("Got it, Retail.")
+    assert onb.answers["business_type"] == "retail"
+    assert reply.text.startswith("Got it, retail.")
 
 
 def test_an_invented_field_name_does_not_save_a_correction_as_the_city() -> None:
@@ -454,3 +454,217 @@ def test_a_finished_form_lists_answers_before_submit() -> None:
     assert "120000" in shown
     assert "missing" in shown.lower()
     assert "shall I submit" in shown
+
+
+def test_a_dhaba_is_stored_as_a_restaurant() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"answer","field":"business_type","value_span":"it\'s a dhaba","canonical":null}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("it's a dhaba"))
+
+    assert onb.answers["business_type"] == "restaurant"
+    assert reply.text.startswith("Got it, restaurant.")
+
+
+def test_a_salon_is_stored_as_salon() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"answer","field":"business_type","value_span":"a salon","canonical":null}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("a salon"))
+
+    assert onb.answers["business_type"] == "salon"
+
+
+def test_upi_and_cash_are_stored_as_the_list() -> None:
+    onb = Shop()
+    onb.order = ["payment_methods"]
+    note = (
+        '{"acts":['
+        '{"type":"answer","field":"payment_methods","value_span":"UPI","canonical":"upi"},'
+        '{"type":"answer","field":"payment_methods","value_span":"cash","canonical":"cash"}'
+        '],"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("UPI and cash both"))
+
+    assert onb.answers["payment_methods"] == "UPI, cash"
+
+
+def test_a_negated_dhaba_is_not_stored() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"answer","field":"business_type","value_span":"dhaba","canonical":"restaurant"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("we aren't a dhaba"))
+
+    assert onb.answers == {}
+    assert "kind of shop" in reply.text.lower()
+
+
+def test_store_them_is_not_a_yes() -> None:
+    onb = Shop()
+    onb.order = ["stores_payer_phones"]
+    note = (
+        '{"acts":[{"type":"answer","field":"stores_payer_phones","value_span":"we do store them","canonical":"yes"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("we do store them"))
+
+    assert onb.answers == {}
+    assert "yes or no" in reply.text.lower()
+
+
+def test_a_named_city_correction_is_stored() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Blue Anchor Dhaba", "city": "Mumbay"}
+    note = '{"acts":[{"type":"change_request","field":"city"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("sorry, the city is Mumbai, not Mumbay"))
+
+    assert onb.answers["city"] == "Mumbai"
+    assert "business_type" not in onb.answers
+    assert "Mumbai" in reply.text
+    assert reply.step["pending"]["name"] == "business_type"
+
+
+def test_a_named_shop_correction_is_stored() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Ribbon Reel", "city": "Pune"}
+    note = '{"acts":[{"type":"change_request"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("sorry, the shop name is Ribbon Reel Gifts, not Ribbon Reel"))
+
+    assert onb.answers["shop_name"] == "Ribbon Reel Gifts"
+    assert "business_type" not in onb.answers
+
+
+def test_the_first_spelling_restores_the_first_name() -> None:
+    session, onb = _session(chat=Scripted(
+        '{"acts":[{"type":"answer","field":"shop_name","value_span":"Field Day Sports"}],"confidence":"high"}'
+    ))
+    asyncio.run(session.turn("Field Day Sports"))
+    session.chat = Scripted('{"acts":[{"type":"change_request","field":"shop_name"}],"confidence":"high"}')
+    asyncio.run(session.turn("sorry, the shop name is Field Day Sporting"))
+    session.chat = Scripted(
+        '{"acts":[{"type":"answer","field":"business_type","value_span":"the first spelling"}],"confidence":"high"}'
+    )
+
+    reply = asyncio.run(session.turn("the first spelling"))
+
+    assert onb.answers["shop_name"] == "Field Day Sports"
+    assert "first spelling" not in onb.answers.values()
+    assert "Field Day Sports" in reply.text
+
+
+def test_the_earlier_one_restores_the_previous_city() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Moonjar Sweets"}
+    session, onb = _session(
+        onb,
+        asyncio.run(onb.next_step()),
+        Scripted('{"acts":[{"type":"answer","field":"city","value_span":"Agra"}],"confidence":"high"}'),
+    )
+    asyncio.run(session.turn("Agra"))
+    session.chat = Scripted('{"acts":[{"type":"change_request","field":"city"}],"confidence":"high"}')
+    asyncio.run(session.turn("sorry, the city is Prayagraj, not Agra"))
+    session.chat = Scripted(
+        '{"acts":[{"type":"answer","field":"city","value_span":"the earlier one"}],"confidence":"high"}'
+    )
+
+    reply = asyncio.run(session.turn("the earlier one"))
+
+    assert onb.answers["city"] == "Agra"
+    assert "earlier" not in onb.answers["city"]
+    assert "Agra" in reply.text
+
+
+def test_a_history_phrase_is_not_saved_when_nothing_came_before() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Field Day Sporting"}
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"the first spelling"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("the first spelling"))
+
+    assert onb.answers["shop_name"] == "Field Day Sporting"
+    assert "earlier one" in reply.text
+
+
+def test_a_shop_name_correction_stops_before_the_question() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Old Name Shop"}
+    note = (
+        '{"acts":[{"type":"correct","field":"shop_name",'
+        '"value_span":"Ribbon Reel Gifts, why did you ask again"}],"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("sorry, the shop name is Ribbon Reel Gifts, why did you ask again"))
+
+    assert onb.answers["shop_name"] == "Ribbon Reel Gifts"
+    assert "city" not in onb.answers
+
+
+def test_yes_dhaba_is_stored_as_a_restaurant() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"confirm_yes","field":"business_type","value_span":"dhaba"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+    session.dialogue.awaiting = "confirm:business_type"
+    session.dialogue.proposed = {"field": "business_type", "value": "dhaba"}
+
+    reply = asyncio.run(session.turn("yes, dhaba"))
+
+    assert onb.answers["business_type"] == "restaurant"
+    assert "restaurant" in reply.text
+
+
+def test_a_name_in_a_city_saves_both_when_the_model_returns_one() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Iron Yard Gym in Nashik"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    reply = asyncio.run(session.turn("Iron Yard Gym in Nashik"))
+
+    assert onb.answers == {"shop_name": "Iron Yard Gym", "city": "Nashik"}
+    assert "Got it, Iron Yard Gym." in reply.text
+    assert "Got it, Nashik." in reply.text
+    assert reply.step["pending"]["name"] == "business_type"
+
+
+def test_a_city_and_its_shop_kind_are_both_saved() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Pallavi Cloth Hall"}
+    note = '{"acts":[{"type":"answer","field":"city","value_span":"Surat, and it\'s a retail shop"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("Surat, and it's a retail shop"))
+
+    assert onb.answers["city"] == "Surat"
+    assert onb.answers["business_type"] == "retail"
+    assert "Got it, Surat." in reply.text
+    assert "Got it, retail." in reply.text
+
+
+def test_a_sentence_with_in_is_not_split_into_a_city() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"we\'re based in Noida"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    asyncio.run(session.turn("we're based in Noida"))
+
+    assert onb.answers == {"shop_name": "we're based in Noida"}

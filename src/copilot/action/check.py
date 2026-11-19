@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from copilot.action.closed import CLOSED_FIELDS, closed_error, normalize_closed
+from copilot.action.closed import CLOSED_FIELDS, closed_error, list_value, normalize_closed
 from copilot.words import EDIT_CUE, FIELD_OF, FIELD_WORD
 
 FIELDS = {
@@ -37,30 +37,47 @@ _SPEAK = {
     "out_of_scope",
     "refuse",
 }
-_PAYMENT = {
-    "upi": "UPI",
-    "card": "cards",
-    "cards": "cards",
-    "cash": "cash",
-    "wallet": "wallet",
-    "wallets": "wallet",
-    "netbanking": "netbanking",
-    "net banking": "netbanking",
-    "bharatqr": "bharatqr",
-    "qr": "bharatqr",
-}
-_BUSINESS = {
-    "restaurant": "restaurant",
-    "cafe": "cafe",
-    "coffee shop": "cafe",
-    "dhaba": "dhaba",
-    "grocery": "grocery",
-    "kirana": "kirana",
-    "retail": "retail",
-}
+_POINTER = re.compile(r"\b(?:earlier|previous|first|original|before|opened|started)\b", re.I)
+_FILLER = re.compile(
+    r"\b(?:the|a|an|my|me|i|it|one|earlier|previous|first|original|spelling|selection|"
+    r"answer|put|back|before|this|that|what|opened|with|started|same|as|please|"
+    r"again|to|of|and|just|only|city|name|figure|volume|payment|type|phones?|typed)\b",
+    re.I,
+)
+_STATED = re.compile(
+    r"\b(?:is|are|to|as|be)\s+(?:actually\s+|just\s+|only\s+)?[\"']?"
+    r"(.+?)"
+    r"[\"']?(?=\s*,\s*(?:not|why|what|how|when|where|who|which)\b"
+    r"|\s+not\b|\s+but\s+why\b|\s+please\b|[.?!]|$)",
+    re.I,
+)
+_QUESTION_AFTER = re.compile(
+    r",\s*(?:why|what|how|when|where|who|which)\b|\bbut\s+why\b",
+    re.I,
+)
+_IN_CITY = re.compile(r"^(?P<name>.+?) in (?P<city>[A-Z][a-z]+(?: [A-Z][a-z]+)?)$")
+_CITY_AND_TYPE = re.compile(
+    r"^(?P<city>[^,]+?),\s+and\s+(?P<tail>it(?:'s| is)\s+.+)$",
+    re.I,
+)
+_NAME_SENTENCE = re.compile(
+    r"\b(?:we|we're|we are|based|sorry|it's|it is|i'm|i am|the shop|my)\b",
+    re.I,
+)
 
 
-def check_acts(acts: list[dict], line: str, *, held: bool, pending=None) -> list[dict]:
+def check_acts(
+    acts: list[dict],
+    line: str,
+    *,
+    held: bool,
+    pending=None,
+    earlier: dict[str, list[str]] | None = None,
+    last_saved: str | None = None,
+) -> list[dict]:
+    if _pure_history(line):
+        return [_recall(line, earlier or {}, last_saved)]
+    acts = _prefer_stated(acts, line)
     kept: list[dict] = []
     for act in acts:
         kind = str(act.get("type") or "")
@@ -87,20 +104,30 @@ def check_acts(acts: list[dict], line: str, *, held: bool, pending=None) -> list
         if str(act.get("confidence") or "high") == "low":
             kept.append({"type": "confirm", "field": field, "value_span": value})
             continue
-        canonical = _canonical(field, act.get("canonical"), line)
-        if canonical == "other":
-            kept.append({"type": "refuse", "reason": "bad_business_type"})
-            continue
-        if canonical:
-            value = canonical
-        else:
-            bad = closed_error(field, value)
-            if bad:
-                kept.append({"type": "refuse", "reason": bad})
+        if field in {"business_type", "payment_methods"}:
+            if str(act.get("canonical") or "").strip().lower() == "other":
+                kept.append({"type": "refuse", "reason": "bad_business_type"})
                 continue
-            value = normalize_closed(field, value)
+            picked = list_value(field, line)
+            if not picked:
+                reason = "bad_business_type" if field == "business_type" else "bad_payment_methods"
+                kept.append({"type": "refuse", "reason": reason})
+                continue
+            value = picked
+        else:
+            canonical = _canonical(field, act.get("canonical"), line)
+            if canonical:
+                value = canonical
+            else:
+                bad = closed_error(field, value)
+                if bad:
+                    kept.append({"type": "refuse", "reason": bad})
+                    continue
+                value = normalize_closed(field, value)
         kept.append({**act, "field": field, "value_span": value})
-    return kept
+    if not held:
+        kept = _pair(kept, line, pending)
+    return _merge_payments(_with_question(kept, line))
 
 
 def _fits_pending(pending, value: str, line: str) -> str:
@@ -133,38 +160,189 @@ def _change(line: str) -> dict:
 
 
 def _canonical(field: str, raw, line: str) -> str | None:
-    if raw in (None, "", []):
+    """Phones only. A yes or no counts when that word is in the line."""
+    if raw in (None, "", []) or field != "stores_payer_phones":
         return None
-    if field == "stores_payer_phones":
-        token = str(raw).strip().lower()
-        if token in {"yes", "y", "haan"} and re.search(r"\b(?:yes|haan)\b", line, re.I):
-            return "Yes"
-        if token in {"no", "n", "nahi"} and re.search(r"\b(?:no|nahi)\b", line, re.I):
-            return "No"
-        return None
-    if field == "business_type":
-        token = str(raw).strip().lower()
-        if token == "other":
-            return "other"
-        label = _BUSINESS.get(token)
-        if label and re.search(rf"\b{re.escape(token)}\b", line, re.I):
-            return label
-        return None
-    if field == "payment_methods":
-        items = [part.strip().lower() for part in str(raw).split(",") if part.strip()]
-        kept = []
-        for item in items:
-            label = _PAYMENT.get(item)
-            if not label:
-                return None
-            if re.search(rf"\bno\s+{re.escape(item)}\b", line, re.I):
-                continue
-            if not re.search(rf"\b{re.escape(item)}\b", line, re.I):
-                return None
-            if label not in kept:
-                kept.append(label)
-        return ", ".join(kept) if kept else None
+    token = str(raw).strip().lower()
+    if token in {"yes", "y", "haan"} and re.search(r"\b(?:yes|haan)\b", line, re.I):
+        return "Yes"
+    if token in {"no", "n", "nahi"} and re.search(r"\b(?:no|nahi)\b", line, re.I):
+        return "No"
     return None
+
+
+def _prefer_stated(acts: list[dict], line: str) -> list[dict]:
+    """A line that already names the new value is a correction, not a prompt for it."""
+    stated = _stated(line)
+    if not stated:
+        return acts
+    wanted = stated["value_span"].casefold()
+    field = stated["field"]
+    has_save = False
+    better = False
+    for act in acts:
+        kind = str(act.get("type") or "")
+        if kind == "change_request":
+            better = True
+        if kind in {"answer", "correct"}:
+            has_save = True
+            got = str(act.get("value_span") or "").strip().casefold()
+            if act.get("field") != field or got != wanted:
+                better = True
+    if has_save and not better:
+        return acts
+    kept = []
+    used = False
+    for act in acts:
+        kind = str(act.get("type") or "")
+        if kind in {"answer", "correct", "change_request"}:
+            if not used:
+                kept.append(stated)
+                used = True
+            continue
+        kept.append(act)
+    if not used:
+        kept.insert(0, stated)
+    return kept
+
+
+def _stated(line: str) -> dict | None:
+    match = FIELD_WORD.search(line)
+    if not match:
+        return None
+    field = FIELD_OF.get(match.group(1).lower())
+    if not field:
+        return None
+    found = _STATED.search(line[match.end():])
+    if not found:
+        return None
+    value = found.group(1).strip(" \t\"'.,")
+    if not value or re.match(r"not\b", value, re.I) or EDIT_CUE.search(value):
+        return None
+    if _names_other(value, field):
+        return None
+    return {"type": "correct", "field": field, "value_span": value}
+
+
+def _pure_history(line: str) -> bool:
+    """The line only points at an earlier answer. It is not a new value."""
+    if _stated(line) or not _POINTER.search(line):
+        return False
+    rest = _FILLER.sub(" ", line)
+    rest = re.sub(r"[^A-Za-z0-9]+", " ", rest).strip()
+    return rest == ""
+
+
+def _recall(line: str, earlier: dict[str, list[str]], last_saved: str | None) -> dict:
+    field = _history_field(line, earlier, last_saved)
+    if not field:
+        return {"type": "change_request"}
+    prior = earlier.get(field) or []
+    if re.search(r"\b(?:first|original|opened|started)\b", line, re.I):
+        value = prior[0] if prior else ""
+    else:
+        value = prior[-2] if len(prior) >= 2 else ""
+    if not value:
+        return {"type": "recall_miss", "field": field}
+    return {"type": "correct", "field": field, "value_span": value}
+
+
+def _history_field(line: str, earlier: dict[str, list[str]], last_saved: str | None) -> str:
+    if re.search(r"\bspelling\b|\bname\b", line, re.I):
+        return "shop_name"
+    named = FIELD_WORD.search(line)
+    if named:
+        return FIELD_OF.get(named.group(1).lower(), "")
+    if re.search(r"\b(?:figure|volume)\b", line, re.I):
+        return "monthly_volume"
+    if re.search(r"\b(?:selection|payment)\b", line, re.I):
+        return "payment_methods"
+    if last_saved and earlier.get(last_saved):
+        return last_saved
+    rich = [name for name, vals in earlier.items() if len(vals) >= 2]
+    if len(rich) == 1:
+        return rich[0]
+    return ""
+
+
+def _with_question(acts: list[dict], line: str) -> list[dict]:
+    """A question after the new value stays a question."""
+    if any(str(act.get("type") or "") in {"why", "ask"} for act in acts):
+        return acts
+    if _QUESTION_AFTER.search(line):
+        return [*acts, {"type": "why"}]
+    return acts
+
+
+def _pair(acts: list[dict], line: str, pending) -> list[dict]:
+    """A second answer in the same line is saved with the first."""
+    name = pending.get("name") if isinstance(pending, dict) and pending.get("kind") == "field" else ""
+    found = _IN_CITY.match(line.strip())
+    if found and name == "shop_name" and not _NAME_SENTENCE.search(found.group("name")):
+        shop = found.group("name").strip()
+        city = found.group("city").strip()
+        acts = _use_value(acts, "shop_name", shop, line)
+        return _add_if_missing(acts, "city", city, line)
+    found = _CITY_AND_TYPE.match(line.strip())
+    if found and name == "city":
+        city = found.group("city").strip()
+        kind = list_value("business_type", found.group("tail"))
+        acts = _use_value(acts, "city", city, line)
+        if kind:
+            acts = _add_if_missing(acts, "business_type", kind, line, grounded=True)
+    return acts
+
+
+def _use_value(acts: list[dict], field: str, value: str, line: str) -> list[dict]:
+    if not _in_line(value, line):
+        return acts
+    out = []
+    seen = False
+    for act in acts:
+        if act.get("type") in {"answer", "correct"} and act.get("field") == field:
+            seen = True
+            current = str(act.get("value_span") or "")
+            if value.casefold() != current.casefold() and value.casefold() in current.casefold():
+                act = {**act, "value_span": value}
+        out.append(act)
+    if not seen:
+        out.append({"type": "answer", "field": field, "value_span": value})
+    return out
+
+
+def _add_if_missing(acts: list[dict], field: str, value: str, line: str, *, grounded: bool = False) -> list[dict]:
+    if not value or not (grounded or _in_line(value, line)):
+        return acts
+    if any(act.get("type") in {"answer", "correct"} and act.get("field") == field for act in acts):
+        return acts
+    return [*acts, {"type": "answer", "field": field, "value_span": value}]
+
+
+def _merge_payments(acts: list[dict]) -> list[dict]:
+    payments = [
+        act
+        for act in acts
+        if act.get("type") in {"answer", "correct"} and act.get("field") == "payment_methods"
+    ]
+    if len(payments) < 2:
+        return acts
+    labels: list[str] = []
+    for act in payments:
+        for part in str(act.get("value_span") or "").split(","):
+            part = part.strip()
+            if part and part not in labels:
+                labels.append(part)
+    merged = {**payments[0], "value_span": ", ".join(labels)}
+    out = []
+    placed = False
+    for act in acts:
+        if act.get("type") in {"answer", "correct"} and act.get("field") == "payment_methods":
+            if not placed:
+                out.append(merged)
+                placed = True
+            continue
+        out.append(act)
+    return out
 
 
 def _in_line(span: str, line: str) -> bool:
