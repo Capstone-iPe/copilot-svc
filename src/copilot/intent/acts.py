@@ -1,35 +1,37 @@
-"""One merchant line becomes a list of acts. Code checks them before any save."""
+"""One merchant line becomes a list of acts. The model reads every line the fast path does not."""
 
 from __future__ import annotations
 
 import json
+import logging
 import re
 
 from copilot.dialogue import DialogueState
+from copilot.intent.classifier import stage
 from copilot.intent.commands import fast_intent
 from copilot.intent.guard import guard_intent
 from copilot.intent.reader import read_intent
+from copilot.prompts import READER_PROMPT, READER_SCHEMA
+from copilot.say.questions import question_for
+from copilot.words import DIGITS, EDIT_CUE, FAST_CUE, FIELD_SYNONYM, QUESTION_WORD, SMALL_TALK, THINK
 
-_CHAT = {"hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "hmm", "👍"}
-_PAUSE = re.compile(r"^(?:wait|later)\b", re.I)
-_UNDO = re.compile(r"^(?:go back|undo|that last one was wrong)\b", re.I)
-_RECAP = re.compile(r"\b(?:what have i|show my answers)\b", re.I)
-_CHANGE_ASK = re.compile(r"\bcan i change\b", re.I)
-_SHOULD = re.compile(
-    r"\b(shop name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b"
-    r".{0,40}?\b(?:should be|is)\s+(.+)$",
+log = logging.getLogger("copilot")
+
+_PAUSE = re.compile(r"^(?:wait|later)\b|\blet me check\b", re.I)
+_YES = re.compile(r"^(?:yes|y|yeah|haan)\b", re.I)
+_NO = re.compile(r"^(?:no|n|nahi)\b", re.I)
+_RECAP = re.compile(
+    r"\b(?:what have i|what values|what answers|show my|have you captured|captured so far|so far)\b",
     re.I,
 )
-_CHANGE_TO = re.compile(
-    r"\b(?:change|update)\b.{0,40}?\b(shop name|legal name|city|business type|volume|payment|phones?)\b"
-    r".{0,20}?\b(?:to|is)\s+(.+)$",
+_NAME_IN_CITY = re.compile(r"^.+\s+in\s+\S.+$", re.I)
+_FIELD_WORD = re.compile(
+    r"\b(shop(?:'s)? name|legal name|company name|business name|the name|city|business type|volume|payment|phones?)\b",
     re.I,
 )
-_ITS_NOT = re.compile(r"\bit'?s\s+(.+?)\s+not\b", re.I)
-_IN_CITY = re.compile(r"^(.+?)\s+in\s+([A-Za-z][\w .'-]+)$")
-_BUT_WHY = re.compile(r"^(.+?)\s*,?\s+but\s+why\b", re.I)
 _FIELD = {
     "shop name": "shop_name",
+    "shop's name": "shop_name",
     "legal name": "shop_name",
     "company name": "shop_name",
     "business name": "shop_name",
@@ -42,141 +44,163 @@ _FIELD = {
     "phones": "stores_payer_phones",
 }
 
-_ACTS_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "acts": {
-            "type": "array",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string"},
-                    "field": {"type": ["string", "null"]},
-                    "value_span": {"type": ["string", "null"]},
-                },
-                "required": ["type"],
-            },
-        }
-    },
-    "required": ["acts"],
-}
-
-
-class _NeedModel(Exception):
-    pass
-
-
-def _need_model(*_args, **_kwargs):
-    raise _NeedModel
-
 
 def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> tuple[list[dict], str]:
-    """Acts for one line. A settled answer never calls the model."""
+    """Guard, exact command, narrow fast path, otherwise one model read."""
     guarded = guard_intent(line, pending)
     if guarded:
+        log.info("model not called: guard %s", guarded)
         return [{"type": guarded}], "guard"
     command = fast_intent(line)
     if command:
+        log.info("model not called: command %s", command)
         return [{"type": command}], "command"
     talk = _talk(line)
     if talk:
+        log.info("model not called: %s", talk)
         return [{"type": talk}], "field"
-    if dialogue.awaiting and dialogue.awaiting.startswith("value_for:") and not line.strip().endswith("?"):
-        field = dialogue.awaiting.split(":", 1)[1]
-        return [{"type": "correct", "field": field, "value_span": line.strip()}], "awaiting"
-    coded = _code_acts(line, pending, snapshot, dialogue)
-    if coded:
-        return coded, "code"
-    try:
-        intent, source = read_intent(line, pending, held, _need_model)
-    except _NeedModel:
-        parsed = _model_acts(line, pending, snapshot, complete)
-        if parsed:
-            return parsed, "model"
-        intent, source = read_intent(line, pending, held, complete)
+    waiting = _waiting(line, dialogue)
+    if waiting:
+        log.info("model not called: waiting for %s", dialogue.awaiting)
+        return waiting, "awaiting"
+    if _fast_answer(line, pending):
+        log.info("model not called: fast path")
+        return [{"type": "answer", "field": str(pending["name"]), "value_span": line.strip(), "confidence": "high"}], "fast"
+    parsed = _model_acts(line, pending, held, snapshot, complete, dialogue)
+    if _RECAP.search(line):
+        return [{"type": "recap"}], "model" if parsed is not None else "fallback"
+    if parsed:
+        return parsed, "model"
+    if EDIT_CUE.search(line):
+        return [_change(line)], "fallback"
+    intent, source = read_intent(line, pending, held, complete)
     return [_as_act(intent, line, pending)], source
 
 
 def _talk(line: str) -> str | None:
     low = line.strip().lower().rstrip("?.! ")
-    if low in _CHAT:
+    if low in SMALL_TALK or low == "👍":
         return "chitchat"
-    if _PAUSE.match(line.strip()):
+    text = line.strip()
+    if _PAUSE.search(text) and not EDIT_CUE.search(text) and not _FIELD_WORD.search(text):
         return "pause"
-    if _UNDO.match(line.strip()):
-        return "undo"
-    if _RECAP.search(low):
-        return "recap"
-    if _CHANGE_ASK.search(low):
-        return "change_request"
     return None
 
 
-def _code_acts(line, pending, _snapshot, dialogue: DialogueState) -> list[dict] | None:
-    why = _BUT_WHY.match(line.strip())
-    if why and pending and pending.get("kind") == "field":
-        value = why.group(1).strip(" ,")
-        return [
-            {"type": "answer", "field": str(pending["name"]), "value_span": value},
-            {"type": "why", "field": str(pending["name"])},
-        ]
-    named = _CHANGE_TO.search(line) or _SHOULD.search(line)
-    if named:
-        field = _FIELD.get(named.group(1).lower())
-        value = named.group(2).strip(" .")
-        if field and value:
-            return [{"type": "correct", "field": field, "value_span": value}]
-    swapped = _ITS_NOT.search(line)
-    if swapped and dialogue.last_saved:
-        value = swapped.group(1).strip(" .")
-        if value:
-            return [{"type": "correct", "field": dialogue.last_saved, "value_span": value}]
-    pair = _IN_CITY.fullmatch(line.strip())
-    if pair and pending and pending.get("name") == "shop_name":
-        shop, city = pair.group(1).strip(), pair.group(2).strip()
-        if shop and city:
-            return [
-                {"type": "answer", "field": "shop_name", "value_span": shop},
-                {"type": "answer", "field": "city", "value_span": city},
-            ]
+def _waiting(line: str, dialogue: DialogueState) -> list[dict] | None:
+    awaiting = dialogue.awaiting or ""
+    if awaiting.startswith("confirm:"):
+        if _YES.match(line.strip()):
+            return [{"type": "confirm_yes"}]
+        if _NO.match(line.strip()):
+            return [{"type": "confirm_no"}]
+        return None
+    if awaiting.startswith("value_for:") and not line.strip().endswith("?") and not QUESTION_WORD.search(line):
+        field = awaiting.split(":", 1)[1]
+        return [{"type": "correct", "field": field, "value_span": line.strip(), "confidence": "high"}]
+    if awaiting == "which_field":
+        field = _FIELD.get(_field_word(line) or "")
+        if field:
+            return [{"type": "change_request", "field": field}]
     return None
+
+
+def _fast_answer(line: str, pending) -> bool:
+    """Section 4.5. Every condition must hold, or the line goes to the model."""
+    if not pending or pending.get("kind") != "field":
+        return False
+    text = line.strip()
+    words = text.split()
+    if not words or len(words) > 5 or text.endswith("?"):
+        return False
+    if QUESTION_WORD.search(text) or FAST_CUE.search(text):
+        return False
+    low = text.lower().rstrip("?.! ")
+    if low in SMALL_TALK:
+        return False
+    name = str(pending.get("name") or "")
+    for field, pattern in FIELD_SYNONYM:
+        if field != name and pattern.search(text):
+            return False
+    if name == "shop_name" and _NAME_IN_CITY.match(text):
+        return False
+    return True
 
 
 def _as_act(intent: str, line: str, pending) -> dict:
     if intent == "answer" and pending and pending.get("kind") == "field":
-        return {"type": "answer", "field": str(pending["name"]), "value_span": line.strip()}
+        return {"type": "answer", "field": str(pending["name"]), "value_span": line.strip(), "confidence": "high"}
+    if intent == "change_answer":
+        return [_change(line)][0]
     return {"type": intent or "again"}
 
 
-def _model_acts(line, pending, snapshot, complete) -> list[dict] | None:
-    pending_name = pending.get("name") if isinstance(pending, dict) else None
-    stored = snapshot.get("answers") if isinstance(snapshot.get("answers"), dict) else {}
-    payload = {"pending": pending_name, "stored": list(stored), "said": line}
-    try:
-        reply = complete(
-            [
-                {
-                    "role": "system",
-                    "content": (
-                        "Label the merchant line as JSON {\"acts\":[{\"type\",\"field\",\"value_span\"}]}. "
-                        "type is answer, correct, why, ask, chitchat, pause, or submit. "
-                        "value_span must be copied from the line. Do not invent a value."
-                    ),
-                },
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
-            ],
-            120,
-            _ACTS_SCHEMA,
-        )
-    except Exception:
-        return None
+def _change(line: str) -> dict:
+    field = _FIELD.get(_field_word(line) or "")
+    act = {"type": "change_request"}
+    if field:
+        act["field"] = field
+    return act
+
+
+def _field_word(line: str) -> str | None:
+    match = _FIELD_WORD.search(line)
+    return match.group(1).lower() if match else None
+
+
+def _model_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> list[dict] | None:
+    payload = {
+        "stage": stage(pending, held),
+        "question": question_for(pending) if pending else "",
+        "stored": _redacted(snapshot),
+        "awaiting": dialogue.awaiting,
+        "last_saved": dialogue.last_saved,
+        "recent": dialogue.recent,
+        "said": line,
+    }
+    messages = [
+        {"role": "system", "content": READER_PROMPT},
+        {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+    ]
+    for _ in range(2):
+        try:
+            reply = complete(messages, 180, READER_SCHEMA)
+        except Exception:
+            return None
+        parsed = _parse(reply)
+        if parsed:
+            return parsed
+        if not reply:
+            return None
+        messages = [
+            *messages,
+            {"role": "assistant", "content": reply},
+            {"role": "user", "content": "Reply with one JSON object of acts and confidence."},
+        ]
+    return None
+
+
+def _parse(reply: str | None) -> list[dict] | None:
     if not reply:
         return None
+    text = THINK.sub("", reply).strip()
     try:
-        parsed = json.loads(reply)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
         return None
-    acts = parsed.get("acts") if isinstance(parsed, dict) else None
+    if not isinstance(parsed, dict):
+        return None
+    acts = parsed.get("acts")
     if not isinstance(acts, list) or not acts:
         return None
-    return [act for act in acts if isinstance(act, dict) and act.get("type")]
+    confidence = parsed.get("confidence") if parsed.get("confidence") in {"high", "low"} else "low"
+    kept = []
+    for act in acts:
+        if isinstance(act, dict) and act.get("type"):
+            kept.append({**act, "confidence": act.get("confidence") or confidence})
+    return kept or None
+
+
+def _redacted(snapshot: dict) -> dict:
+    stored = snapshot.get("answers") if isinstance(snapshot.get("answers"), dict) else {}
+    return {str(key): DIGITS.sub("[number hidden]", str(value)) for key, value in stored.items() if value}

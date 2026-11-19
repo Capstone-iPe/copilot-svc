@@ -97,7 +97,12 @@ async def call(client, name: str, arguments: dict) -> dict:
     shown = {key: value for key, value in arguments.items() if key not in {"value", "application_id"}}
     if result.get("error"):
         shown["error"] = result["error"]
-    log.debug("tool %s %s", name, shown)
+    log.info("calling tool %s %s", name, shown or {})
+    if result.get("error"):
+        log.info("tool %s returned error %s", name, result["error"])
+    else:
+        pending = (result.get("pending") or {}) if isinstance(result.get("pending"), dict) else {}
+        log.info("tool %s returned ok pending=%s", name, pending.get("name"))
     return result
 
 

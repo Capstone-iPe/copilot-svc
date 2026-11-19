@@ -25,14 +25,23 @@ class QwenChat(ChatModel):
         model = chat_model()
         body = _body(messages, model, max_tokens, schema)
         base = chat_base_url().rstrip("/")
+        asked = ""
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                asked = " ".join(str(message.get("content") or "").split())
+                break
+        log.info("talking to LLM: %s", asked[:180])
         reply = _post(base, key, body)
         if reply is _BAD_REQUEST:
             body.pop("response_format", None)
             body.pop("chat_template_kwargs", None)
             reply = _post(base, key, body)
         if not isinstance(reply, str):
+            log.info("LLM responded: nothing")
             return None
-        return THINK.sub("", reply).strip()
+        text = THINK.sub("", reply).strip()
+        log.info("LLM responded: %s", " ".join(text.split())[:300])
+        return text
 
 
 def _body(messages: list[dict], model: str, max_tokens: int, schema: dict | None) -> dict:

@@ -76,6 +76,66 @@ EXPLAIN_RULES = (
 )
 
 
+ACTS = (
+    "answer",
+    "correct",
+    "change_request",
+    "why",
+    "ask",
+    "upload",
+    "missing",
+    "submit",
+    "review_id",
+    "recap",
+    "undo",
+    "chitchat",
+    "pause",
+    "confirm_yes",
+    "confirm_no",
+    "other_shop",
+    "out_of_scope",
+)
+READER_PROMPT = (
+    "You read one merchant line in a shop onboarding chat. "
+    'Reply with one JSON object: {"acts":[{"type","field","value_span","canonical"}],"confidence":"high"|"low"}.\n'
+    "type is answer, correct, change_request, why, ask, upload, missing, submit, review_id, recap, "
+    "undo, chitchat, pause, confirm_yes, confirm_no, other_shop, or out_of_scope.\n"
+    "value_span is copied from the line, or null. Never invent a value. Never use the whole line "
+    "as the value when the line is about a typo, a change, or what was already captured.\n"
+    "field is a known field name, or null.\n"
+    "canonical is only for business_type, payment_methods, or stores_payer_phones, else null.\n"
+    "A typo or a change of an earlier answer is correct when the new value is in the line, "
+    "otherwise change_request. It is not an answer to the pending field.\n"
+    "What was captured, or what they have filled so far, is recap. It is not ask and not why.\n"
+    "A shop name that contains the word not, such as Why Not Cafe, is answer.\n"
+    "Sharma Sweets in Pune, while the shop name is pending, is two answers: the name, then the city.\n"
+    "Pune, but why is an answer and a why.\n"
+    "hi, thanks, ok are chitchat. wait and later are pause.\n"
+    "confidence is low when the field is unclear."
+)
+READER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "acts": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": list(ACTS)},
+                    "field": {"type": ["string", "null"]},
+                    "value_span": {"type": ["string", "null"]},
+                    "canonical": {"type": ["string", "null"]},
+                },
+                "required": ["type"],
+            },
+        },
+        "confidence": {"type": "string", "enum": ["high", "low"]},
+    },
+    "required": ["acts", "confidence"],
+    "additionalProperties": False,
+}
+
+
 def explain_prompt(instruction: str) -> str:
     return f"{instruction} {EXPLAIN_RULES}"
 

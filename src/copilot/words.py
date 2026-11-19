@@ -113,6 +113,25 @@ VOLUME = re.compile(
     re.I,
 )
 NEW_VALUE = re.compile(r"\b(?:to|is|as)\s+[\"']?(.+?)[\"']?\s*[.!]?$", re.I)
+# Section 4.5. "not" blocks the fast path only. A shop name may still contain it.
+FAST_CUE = re.compile(
+    r"\b(?:actually|sorry|wrong|meant|change|typo|earlier|instead|update|not)\b",
+    re.I,
+)
+EDIT_CUE = re.compile(
+    r"\b(?:actually|sorry|wrong|meant|change|typo|earlier|instead|update)\b",
+    re.I,
+)
+QUESTION_WORD = re.compile(r"\b(?:why|what|how|when|where|who|which)\b", re.I)
+SMALL_TALK = {"hi", "hello", "hey", "thanks", "thank you", "ok", "okay", "hmm"}
+FIELD_SYNONYM = (
+    ("shop_name", re.compile(r"\b(?:shop name|legal name|company name|business name|the name|company|firm)\b", re.I)),
+    ("city", re.compile(r"\bcity\b", re.I)),
+    ("business_type", re.compile(r"\b(?:business type|kind of shop|type of shop)\b", re.I)),
+    ("monthly_volume", re.compile(r"\b(?:volume|lakh|crore)\b", re.I)),
+    ("payment_methods", re.compile(r"\b(?:payment|upi|cards?|cash|wallet)\b", re.I)),
+    ("stores_payer_phones", re.compile(r"\bphones?\b", re.I)),
+)
 REVIEW_ID = re.compile(r"MR-\d+")
 DOC_ID = re.compile(r"\bONB-[A-Z0-9]+(?:-[A-Z0-9]+)*")
 SECTION = re.compile(r"\b(ONB-[A-Z0-9]+(?:-[A-Z0-9]+)*)\s*§\s*(\d+(?:\.\d+)?)")

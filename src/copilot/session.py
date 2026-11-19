@@ -42,9 +42,12 @@ class Session:
 
     async def turn(self, line: str) -> Reply:
         pending, snapshot, verdict, held = _view(self.step)
+        if pending and pending.get("name"):
+            self.dialogue.focus = str(pending["name"])
         acts, source = read_acts(line, pending, held, snapshot, self.chat.complete, self.dialogue)
+        log.info("taking decision: source=%s acts=%s", source, _brief(acts))
         self.dialogue.note("merchant", line)
-        if _uses_acts(acts, source):
+        if source not in {"guard", "command"}:
             reply = await self._acts(line, acts, source, pending, snapshot, verdict)
             self.dialogue.note("assistant", reply.text)
             return reply
@@ -64,6 +67,7 @@ class Session:
     async def _acts(self, line, acts, source, pending, snapshot, verdict) -> Reply:
         held = verdict is not None
         checked = _ordered(check_acts(acts, line, held=held), pending, snapshot)
+        log.info("after check: %s", _brief(checked))
         texts: list[str] = []
         saved = False
         for act in checked:
@@ -87,8 +91,31 @@ class Session:
             if kind == "refuse":
                 texts.append(refusal(str(act.get("reason") or "again"), verdict, line))
                 break
+            if kind == "confirm":
+                field = str(act.get("field") or "")
+                value = str(act.get("value_span") or "")
+                self.dialogue.awaiting = f"confirm:{field}"
+                self.dialogue.proposed = {"field": field, "value": value}
+                texts.append(f"Did you mean {value} for the {field.replace('_', ' ')}?")
+                continue
+            if kind == "confirm_yes" and self.dialogue.proposed:
+                wrote = await self._save_act(
+                    {"field": self.dialogue.proposed["field"], "value_span": self.dialogue.proposed["value"]},
+                    True,
+                )
+                self.dialogue.proposed = None
+                self.dialogue.awaiting = None
+                if wrote:
+                    texts.append(wrote)
+                    saved = True
+                continue
+            if kind == "confirm_no":
+                self.dialogue.proposed = None
+                self.dialogue.awaiting = None
+                texts.append("Okay, we'll leave that as it is.")
+                continue
             if kind in _ASIDE:
-                texts.append(self._aside(kind, line, snapshot))
+                texts.append(self._aside(kind, line, snapshot, pending, act))
                 continue
         action = "save" if saved else str((checked or acts or [{"type": "again"}])[0].get("type") or "again")
         trace = {
@@ -99,7 +126,12 @@ class Session:
             "reply": "template",
         }
         log.debug("trace %s", json.dumps(trace))
-        return Reply(text=" ".join(part for part in texts if part).strip(), prompt=prompt_for(self.step), trace=trace, step=self.step)
+        return Reply(
+            text=" ".join(part for part in texts if part).strip(),
+            prompt=_prompt(self),
+            trace=trace,
+            step=self.step,
+        )
 
     async def _save_act(self, act: dict, correct: bool) -> str | None:
         field = str(act.get("field") or "")
@@ -113,10 +145,11 @@ class Session:
         if not field or not value or not (is_pending or already):
             return None
         result = await self.onb.save_answer(self.application_id, field, value)
-        if result.get("error"):
-            self.step = await self.onb.next_step(self.application_id)
-            return refusal("change_how", None, value)
         action = {"action": "save", "field": field, "value": value, "correct": correct}
+        if result.get("error"):
+            reply, _new = result_reply(action, [result], stored)
+            self.step = await self.onb.next_step(self.application_id)
+            return reply
         reply, _new = result_reply(action, [result], stored)
         self.dialogue.last_saved = field
         self.dialogue.focus = field
@@ -125,28 +158,31 @@ class Session:
         self.step = await self.onb.next_step(self.application_id)
         return reply
 
-    def _aside(self, kind: str, line: str, snapshot: dict) -> str:
+    def _aside(self, kind: str, line: str, snapshot: dict, pending, act: dict | None = None) -> str:
         if kind == "chitchat":
-            return "I'm here. We can keep going whenever you're ready."
+            low = line.strip().lower().rstrip("?.! ")
+            if low in {"thanks", "thank you"}:
+                return "You're welcome."
+            return "Hi! Let's carry on."
         if kind == "pause":
-            return "No rush. I'll hold this question."
+            return "Sure, take your time. Everything so far is saved. Just come back and we'll continue from here."
         if kind == "undo":
             return "I can't undo a saved answer. Tell me the field and the new value, and I'll update it."
         if kind == "recap":
-            stored = answers(snapshot)
-            if not stored:
-                return "Nothing is saved yet."
-            parts = [
-                f"{name.replace('_', ' ')} is {DIGITS.sub('[number hidden]', str(value))}"
-                for name, value in stored.items()
-                if value
-            ]
-            return "So far, " + "; ".join(parts) + "."
-        field = _named_field(line)
+            return _recap(snapshot)
+        if isinstance(snapshot.get("verdict"), dict):
+            return "Stored answers stay as stored. " + _recap(snapshot)
+        if pending and pending.get("name"):
+            self.dialogue.resume_to = str(pending["name"])
+        field = str((act or {}).get("field") or "") or (_named_field(line) or "")
         if field:
             self.dialogue.awaiting = f"value_for:{field}"
-            return "Sure. What should it be?"
-        return "Tell me which answer to change and what it should be."
+            return f"Sure, what should the {field.replace('_', ' ')} be?"
+        self.dialogue.awaiting = "which_field"
+        return (
+            "Which answer would you like to change: shop name, city, business type, "
+            "monthly volume, payment methods, or payer phones?"
+        )
 
     async def _answer(self, line, pending, snapshot, verdict, action, trace):
         kind = action["action"]
@@ -205,6 +241,7 @@ _ACT_SAVE = {"answer", "correct"}
 
 _NAMED = {
     "shop name": "shop_name",
+    "shop's name": "shop_name",
     "legal name": "shop_name",
     "city": "city",
     "business type": "business_type",
@@ -215,9 +252,38 @@ _NAMED = {
 }
 
 
+def _recap(snapshot: dict) -> str:
+    stored = answers(snapshot)
+    if not stored:
+        return "Nothing is saved yet."
+    parts = [
+        f"{name.replace('_', ' ')} is {DIGITS.sub('[number hidden]', str(value))}"
+        for name, value in stored.items()
+        if value
+    ]
+    return "So far, " + "; ".join(parts) + "."
+
+
+def _prompt(session: Session) -> str:
+    waiting = session.dialogue.awaiting or ""
+    if waiting.startswith("value_for:"):
+        from copilot.say.questions import QUESTIONS
+
+        field = waiting.split(":", 1)[1]
+        question = QUESTIONS.get(field)
+        if question:
+            return question
+    return prompt_for(session.step)
+
+
+def _brief(acts: list[dict]) -> str:
+    short = [{"type": act.get("type"), "field": act.get("field"), "value_span": act.get("value_span")} for act in acts]
+    return json.dumps(short, ensure_ascii=False)
+
+
 def _named_field(line: str) -> str | None:
     match = re.search(
-        r"\b(shop name|legal name|city|business type|volume|payment|phones?)\b",
+        r"\b(shop(?:'s)? name|legal name|city|business type|volume|payment|phones?)\b",
         line,
         re.I,
     )

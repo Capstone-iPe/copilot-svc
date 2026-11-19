@@ -33,14 +33,37 @@ UPLOADS = {
 }
 
 
-def question_for(pending: dict | None, *, web: bool = False) -> str:
+_VARIANTS = {
+    "shop_name": (
+        "What is the shop's legal name?",
+        "What name is the shop registered under?",
+    ),
+    "city": (
+        "Which city is the shop in?",
+        "Where is the shop located? Just the city is fine.",
+        "And which city is {shop} in?",
+    ),
+    "business_type": (
+        "What kind of shop is it? Restaurant, grocery, and retail are permitted; cafe or kirana are fine. Name the type clearly.",
+        "What kind of shop is it: restaurant, grocery, retail, or something else?",
+    ),
+}
+
+
+def question_for(pending: dict | None, *, web: bool = False, turn: int = 0, shop: str = "") -> str:
     if not pending:
         return "Submit when you're ready."
     name = str(pending.get("name") or "")
     if pending.get("kind") == "upload":
         table = WEB_UPLOADS if web else UPLOADS
         return table.get(name, f"Upload {name}.")
-    return QUESTIONS.get(name, name)
+    choices = _VARIANTS.get(name)
+    if not choices:
+        return QUESTIONS.get(name, name)
+    text = choices[turn % len(choices)]
+    if "{shop}" in text:
+        text = text.format(shop=shop) if shop else QUESTIONS.get(name, name)
+    return text
 
 
 def slot_list(slots: list[str]) -> str:
@@ -55,7 +78,17 @@ def answers(snapshot: dict) -> dict:
 def prompt_for(step: dict, *, web: bool = False) -> str:
     pending = step.get("pending") if isinstance(step.get("pending"), dict) else None
     if pending:
-        return question_for(pending, web=web)
+        stored = answers(step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {})
+        filled = [key for key, value in stored.items() if value]
+        shop = str(stored.get("shop_name") or "")
+        question = question_for(pending, web=web, turn=len(filled), shop=shop)
+        if not filled or pending.get("kind") != "field":
+            return question
+        if len(filled) >= 6:
+            return f"Last question: {question}"
+        if len(filled) >= 4:
+            return f"Almost done. {question}"
+        return f"Next, {question}"
     snapshot = step.get("snapshot") if isinstance(step.get("snapshot"), dict) else {}
     slots = slot_states(snapshot)
     if isinstance(snapshot.get("verdict"), dict):
