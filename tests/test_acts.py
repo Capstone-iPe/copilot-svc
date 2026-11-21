@@ -3,6 +3,7 @@
 import asyncio
 
 from copilot.chat.chat_model import ChatModel
+from copilot.dialogue import DialogueState
 from copilot.corpus.passages import Passages
 from copilot.onb.onb_tools import OnbTools
 from copilot.say.questions import prompt_for
@@ -651,8 +652,19 @@ def test_yes_dhaba_is_stored_as_a_restaurant() -> None:
     assert "restaurant" in reply.text
 
 
-def test_a_name_in_a_city_saves_both_when_the_model_returns_one() -> None:
+def test_a_name_in_a_city_stays_whole_when_the_model_keeps_the_city() -> None:
     note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Iron Yard Gym in Nashik"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    reply = asyncio.run(session.turn("Iron Yard Gym in Nashik"))
+
+    assert onb.answers == {"shop_name": "Iron Yard Gym in Nashik"}
+    assert "Got it, Iron Yard Gym in Nashik." in reply.text
+    assert reply.step["pending"]["name"] == "city"
+
+
+def test_a_name_in_a_city_saves_both_when_the_model_already_left_the_city_out() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Iron Yard Gym"}],"confidence":"high"}'
     session, onb = _session(chat=Scripted(note))
 
     reply = asyncio.run(session.turn("Iron Yard Gym in Nashik"))
@@ -661,6 +673,15 @@ def test_a_name_in_a_city_saves_both_when_the_model_returns_one() -> None:
     assert "Got it, Iron Yard Gym." in reply.text
     assert "Got it, Nashik." in reply.text
     assert reply.step["pending"]["name"] == "business_type"
+
+
+def test_made_in_japan_stays_the_shop_name() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Made in Japan"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    asyncio.run(session.turn("Made in Japan"))
+
+    assert onb.answers == {"shop_name": "Made in Japan"}
 
 
 def test_a_city_and_its_shop_kind_are_both_saved() -> None:
@@ -767,6 +788,37 @@ def test_no_still_cancels_a_real_confirmation() -> None:
 
     assert onb.answers == {}
     assert "leave that" in reply.text.lower()
+
+
+def test_a_note_is_not_kept_for_recall_and_an_old_resume_still_loads() -> None:
+    state = DialogueState()
+    state.remember("monthly_volume", "120000")
+    state.remember("note", "account 552100387716")
+    assert state.values == {"monthly_volume": ["120000"]}
+    restored = DialogueState.restore({"resume_to": "city", "values": {"city": ["Pune"]}, "recent": []})
+    assert restored.values == {"city": ["Pune"]}
+    assert not hasattr(restored, "resume_to")
+
+
+def test_a_dead_model_does_not_save_a_city_sentence() -> None:
+    class Mute(ChatModel):
+        def complete(self, messages, max_tokens, schema=None):
+            return None
+
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Blue Anchor Dhaba"}
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Mute())
+
+    reply = asyncio.run(session.turn("my brother's place"))
+
+    assert onb.answers == {"shop_name": "Blue Anchor Dhaba"}
+    assert "didn't catch" in reply.text.lower()
+    assert reply.step["pending"]["name"] == "city"
+
+    reply = asyncio.run(session.turn("Pune"))
+
+    assert onb.answers["city"] == "Pune"
 
 
 def test_a_dead_model_does_not_save_free_text() -> None:

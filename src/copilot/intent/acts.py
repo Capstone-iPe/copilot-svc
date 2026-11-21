@@ -6,6 +6,7 @@ import json
 import logging
 import re
 
+from copilot.action.check import _NAME_SENTENCE
 from copilot.dialogue import DialogueState
 from copilot.intent.classifier import stage
 from copilot.intent.commands import fast_intent
@@ -46,6 +47,8 @@ def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) 
     if EDIT_CUE.search(line) or _other_field(line, pending):
         return [_change(line)], "fallback"
     name = str(pending.get("name") or "") if isinstance(pending, dict) and pending.get("kind") == "field" else ""
+    if name == "city" and _NAME_SENTENCE.search(line):
+        return [{"type": "again"}], "fallback"
     if name and not _CHATTER.search(line) and not _QUESTION.search(line):
         return [{"type": "answer", "field": name, "value_span": line.strip(), "confidence": "high"}], "fallback"
     return [{"type": "again"}], "fallback"

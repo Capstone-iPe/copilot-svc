@@ -147,7 +147,7 @@ class Session:
                     pending, snapshot, verdict, held = _view(self.step)
                 continue
             if kind in _ASIDE:
-                texts.append(self._aside(kind, line, snapshot, pending, act))
+                texts.append(self._aside(kind, line, snapshot, act))
                 continue
         if self.dialogue.awaiting == prior_wait and prior_wait:
             kinds = {str(act.get("type") or "") for act in checked}
@@ -228,7 +228,7 @@ class Session:
             return
         self.dialogue.misses += 1
 
-    def _aside(self, kind: str, line: str, snapshot: dict, pending, act: dict | None = None) -> str:
+    def _aside(self, kind: str, line: str, snapshot: dict, act: dict | None = None) -> str:
         if kind == "chitchat":
             low = line.strip().lower()
             if "thank" in low:
@@ -254,8 +254,6 @@ class Session:
             return _recap(snapshot)
         if isinstance(snapshot.get("verdict"), dict):
             return "Stored answers stay as stored. " + _recap(snapshot)
-        if pending and pending.get("name"):
-            self.dialogue.resume_to = str(pending["name"])
         field = str((act or {}).get("field") or "") or (_named_field(line) or "")
         if field:
             self.dialogue.awaiting = f"value_for:{field}"

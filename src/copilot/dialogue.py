@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 
 from copilot.words import DIGITS
 
@@ -10,7 +10,6 @@ from copilot.words import DIGITS
 @dataclass
 class DialogueState:
     focus: str | None = None
-    resume_to: str | None = None
     awaiting: str | None = None
     proposed: dict | None = None
     last_saved: str | None = None
@@ -21,11 +20,14 @@ class DialogueState:
 
     @classmethod
     def restore(cls, saved: dict) -> DialogueState:
-        state = cls(**saved)
+        known = {item.name for item in fields(cls)}
+        state = cls(**{key: value for key, value in saved.items() if key in known})
         state.recent = [(role, text) for role, text in state.recent]
         return state
 
     def remember(self, name: str, value: str) -> None:
+        if name == "note":
+            return
         prior = self.values.setdefault(name, [])
         if value and (not prior or prior[-1] != value):
             prior.append(value)

@@ -281,7 +281,6 @@ async def _resume(
             dialogue.remember(field, str(value))
     dialogue.awaiting = None
     dialogue.proposed = None
-    dialogue.resume_to = None
     dialogue.focus = (session.step.get("pending") or {}).get("name")
     dialogue.note("merchant", pending.input["request"]["line"])
     dialogue.note("assistant", INTERRUPTED)

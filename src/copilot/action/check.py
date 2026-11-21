@@ -363,9 +363,10 @@ def _pair(acts: list[dict], line: str, pending) -> list[dict]:
         and city.casefold() not in _NOT_A_CITY
         and not _NAME_SENTENCE.search(found.group("name"))
     ):
-        shop = found.group("name").strip()
-        acts = _use_value(acts, "shop_name", shop, line)
-        return _add_if_missing(acts, "city", city, line)
+        model_shop = _span(acts, "shop_name")
+        if model_shop and city.casefold() not in model_shop.casefold():
+            return _add_if_missing(acts, "city", city, line)
+        return acts
     found = _CITY_AND_TYPE.match(line.strip())
     if found and name == "city":
         city = found.group("city").strip()
@@ -374,6 +375,13 @@ def _pair(acts: list[dict], line: str, pending) -> list[dict]:
         if kind:
             acts = _add_if_missing(acts, "business_type", kind, line, grounded=True)
     return acts
+
+
+def _span(acts: list[dict], field: str) -> str:
+    for act in acts:
+        if act.get("type") in {"answer", "correct"} and act.get("field") == field:
+            return str(act.get("value_span") or "").strip()
+    return ""
 
 
 def _use_value(acts: list[dict], field: str, value: str, line: str) -> list[dict]:
