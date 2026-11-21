@@ -5,6 +5,8 @@ import os
 import sys
 from contextlib import contextmanager
 from threading import Event, Thread
+from time import monotonic, sleep
+from typing import ClassVar
 from uuid import uuid4
 
 import psycopg
@@ -16,7 +18,7 @@ from psycopg.conninfo import make_conninfo
 from copilot.app import create_app
 from copilot.chat.recorded_chat import RecordedChat
 from copilot.corpus.passages import Passages
-from copilot.history import ConversationHistory, History
+from copilot.history import ConversationHistory, History, TraceDeliveryError
 from copilot.identity import Merchant
 from copilot.onb.onb_tools import OnbTools
 from copilot.session import Session
@@ -113,10 +115,12 @@ AUTH = {"Authorization": "Bearer test-token", "X-Merchant-Id": "google:test"}
 ROOT = "/v1/conversations"
 
 
-def test_health_and_one_turn(open_client) -> None:
+def test_health_and_one_turn(open_client, history, monkeypatch) -> None:
+    monkeypatch.setenv("COPILOT_LANGFUSE_ENABLED", "false")
     start, _ = factory(FakeOnb())
     with open_client(start) as client:
         _check_turn_contract(client)
+    assert _outbox(history) == []
 
 
 def _check_turn_contract(client):
@@ -328,3 +332,137 @@ def test_upload_retry_persists_attachment_once(open_client):
     assert onb.writes == 1
     messages = [m for m in sent.json()["conversation"]["messages"] if m["role"] == "merchant"]
     assert [m["attachments"] for m in messages] == [[{"document": "owner_id", "filename": "owner.pdf"}]]
+
+
+def _outbox(history):
+    with psycopg.connect(history.dsn) as conn:
+        return conn.execute("""
+            SELECT payload, attempts, delivered_at, last_error FROM copilot_trace_outbox
+            ORDER BY revision, next_attempt_at
+            """).fetchall()
+
+
+@pytest.fixture
+def tracing(monkeypatch):
+    for name, value in {
+        "COPILOT_LANGFUSE_ENABLED": "true",
+        "COPILOT_TRACE_CAPTURE_CONTENT": "false",
+        "LANGFUSE_BASE_URL": "http://127.0.0.1:3000",
+        "LANGFUSE_PUBLIC_KEY": "pk-lf-test",
+        "LANGFUSE_SECRET_KEY": "sk-lf-test",
+        "COPILOT_TRACE_PSEUDONYM_KEY": "test-only-pseudonym-key-for-testing",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+    class FakeDelivery:
+        attempts: ClassVar[list[dict]] = []
+        failing = False
+
+        def __init__(self, settings):
+            pass
+
+        async def check_config(self):
+            pass
+
+        async def send(self, payload):
+            self.attempts.append(payload)
+            if self.failing:
+                raise TraceDeliveryError("test_outage")
+
+        async def close(self):
+            pass
+
+    monkeypatch.setattr("copilot.app.LangfuseDelivery", FakeDelivery)
+    return FakeDelivery
+
+
+def test_traced_message_file_submit_and_refusal(open_client, history, tracing):
+    onb = FakeOnb()
+    start, _ = factory(onb)
+    path = f"{ROOT}/{APP_ID}"
+    with open_client(start) as client:
+        assert client.post(ROOT, headers=AUTH).status_code == 201
+        message = {"text": "Lotus Tea House", "client_message_id": "shop"}
+        for _ in range(2):
+            sent = client.post(f"{path}/messages", headers=AUTH, json=message)
+            assert sent.status_code == 200
+            assert "trace" not in sent.json()["reply"]
+        onb.step["pending"] = {"kind": "upload", "name": "owner_id"}
+        assert client.post(f"{path}/files", headers=AUTH, files={"file": ("secret.pdf", b"secret")},
+                           data={"client_message_id": "file"}).status_code == 200
+        onb.step["pending"] = None
+        assert client.post(f"{path}/messages", headers=AUTH,
+                           json={"action": "submit", "client_message_id": "submit"}).status_code == 200
+        assert client.post(f"{path}/messages", headers=AUTH,
+                           json={"text": "activate my account", "client_message_id": "refusal"}).status_code == 200
+
+    payloads = [row[0] for row in _outbox(history)]
+    assert len({p["trace_id"] for p in payloads}) == len(payloads) == 4
+    roots = [p["events"][0]["body"] for p in payloads]
+    assert {r["sessionId"] for r in roots} == {APP_ID}
+    assert len({r["userId"] for r in roots}) == 1
+    assert roots[0]["userId"] != "google:test"
+    actions = {r["metadata"]["reply_trace"]["action"]: r for r in roots}
+    assert actions["file"]["name"] == "copilot.file"
+    assert actions["submit"]["name"] == "copilot.submit"
+    assert actions["submit"]["metadata"]["status"] == "success"
+    assert actions["save"]["metadata"]["reply_trace"]["stage"] == "field"
+    assert actions["refuse"]["metadata"]["status"] == "fallback/refusal"
+    assert all("output" not in r for r in roots)
+    assert "secret.pdf" not in str(payloads)
+
+
+def _wait_for_outbox(history, condition):
+    deadline = monotonic() + 6
+    while monotonic() < deadline:
+        rows = _outbox(history)
+        if condition(rows):
+            return rows
+        sleep(0.04)
+    pytest.fail("outbox did not reach expected state")
+
+
+def test_outage_retries_after_restart_without_changing_event_ids(open_client, history, tracing):
+    tracing.failing = True
+    start, _ = factory(FakeOnb())
+    with open_client(start) as client:
+        assert client.post(ROOT, headers=AUTH).status_code == 201
+        answer = client.post(f"{ROOT}/{APP_ID}/messages", headers=AUTH, json={"text": "Lotus Tea House"})
+        assert answer.status_code == 200
+        _wait_for_outbox(history, lambda rows: rows and rows[0][1:] == (1, None, "test_outage"))
+
+    tracing.failing = False
+    with open_client(start), open_client(start):
+        _wait_for_outbox(history, lambda rows: rows and rows[0][2] is not None)
+    first_attempt, retry = tracing.attempts
+    assert first_attempt == retry
+
+
+def test_failed_turn_and_recovery_share_trace_id(open_client, history, tracing, monkeypatch):
+    onb = FakeOnb()
+    start, _ = factory(onb)
+    with open_client(start) as client:
+        assert client.post(ROOT, headers=AUTH).status_code == 201
+        original_save = ConversationHistory.save
+
+        async def fail_before_commit(record, view, dialogue):
+            await original_save(record, view, dialogue)
+            raise RuntimeError("secret error detail")
+
+        monkeypatch.setattr(ConversationHistory, "save", fail_before_commit)
+        path = f"{ROOT}/{APP_ID}/messages"
+        message = {"text": "Lotus Tea House", "client_message_id": "recover"}
+        assert client.post(path, headers=AUTH, json=message).status_code == 500
+        monkeypatch.setattr(ConversationHistory, "save", original_save)
+        assert client.post(path, headers=AUTH, json=message).status_code == 200
+        rows = _wait_for_outbox(history, lambda rows: len(rows) == 2 and all(r[2] for r in rows))
+
+    failed, recovered = [row[0] for row in rows]
+    assert onb.writes == 1
+    assert failed["trace_id"] == recovered["trace_id"]
+    assert [p["events"][0]["body"]["metadata"]["status"] for p in (failed, recovered)] == [
+        "error", "interrupted/recovered",
+    ]
+    assert len(recovered["events"]) == 1
+    assert recovered["events"][0]["body"]["metadata"]["completed_generation_trace"] is False
+    assert "secret error detail" not in str(rows)

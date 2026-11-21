@@ -11,6 +11,7 @@ import urllib.request
 
 from copilot.chat.chat_model import ChatModel
 from copilot.config import chat_api_key, chat_base_url, chat_ca_cert, chat_model
+from copilot.observability import note_provider
 from copilot.words import THINK
 
 log = logging.getLogger("copilot")
@@ -18,11 +19,16 @@ _BAD_REQUEST = object()
 
 
 class QwenChat(ChatModel):
+    @property
+    def model_name(self) -> str:
+        return chat_model()
+
     def complete(self, messages: list[dict], max_tokens: int, schema: dict | None = None) -> str | None:
+        model = self.model_name
+        note_provider(model, None)
         key = chat_api_key()
         if not key:
             return None
-        model = chat_model()
         body = _body(messages, model, max_tokens, schema)
         base = chat_base_url().rstrip("/")
         asked = ""
@@ -93,6 +99,8 @@ def _post(base: str, key: str, body: dict):
         try:
             with urllib.request.urlopen(request, context=context, timeout=60) as response:
                 payload = json.load(response)
+            usage = payload.get("usage")
+            note_provider(body["model"], usage if isinstance(usage, dict) else None)
             return str(payload["choices"][0]["message"]["content"] or "")
         except urllib.error.HTTPError as exc:
             if exc.code == 400 and ("response_format" in body or "chat_template_kwargs" in body):

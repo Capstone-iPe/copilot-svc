@@ -9,6 +9,8 @@ dependencies = [
     "uvicorn",
     "python-dotenv",
     "psycopg[binary]>=3.2",
+    "httpx",
+    "langfuse==3.14.0",
 ]
 
 [tool.pytest.ini_options]

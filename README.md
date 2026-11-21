@@ -135,8 +135,39 @@ In copilot-web-app `.env`:
 CHAT_SERVICE_URL=https://copilot-svc.onrender.com
 ```
 
+### Langfuse turn tracing (optional)
 
+1. Install the service dependencies and configure `DATABASE_URL` as above. The service creates
+   `copilot_trace_outbox` and its index at startup using the existing history migration lock.
+2. Create a project in Langfuse Cloud (choose the appropriate region) or on your own Langfuse instance.
+   Set `LANGFUSE_BASE_URL` to that instance root (e.g. `https://cloud.langfuse.com`, a self-hosted HTTPS
+   origin, or `http://127.0.0.1:3000` for local self-hosting). The SDK alias `LANGFUSE_HOST` works if
+   `LANGFUSE_BASE_URL` is unset. Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to the project keys.
+3. Set `COPILOT_TRACE_PSEUDONYM_KEY` to a separate random secret of at least 32 characters. Inject
+   credentials through a deployment secret store or your local gitignored `.env`, not Git or browser
+   configuration. Use the same project and pseudonym key across replicas. Set
+   `LANGFUSE_TRACING_ENVIRONMENT` (e.g. `production`) and optionally `LANGFUSE_RELEASE` (build or commit;
+   defaults to the service version). Use separate projects for development and production.
+4. Set `COPILOT_LANGFUSE_ENABLED=true` and restart FastAPI. Leave `COPILOT_TRACE_CAPTURE_CONTENT=false`
+   unless approved. Send a test message and find its application ID under **Sessions** in Langfuse.
+   Malformed settings or rejected project credentials fail startup; network outages leave traces in the outbox.
 
+**Privacy defaults:** Metadata-only tracing sends the application/session ID, a keyed merchant pseudonym,
+turn ID, UTC times and latencies, environment/release, existing decision fields, status/diagnostic codes,
+configured model when known, prompt template names and hashes, provider token counts when available,
+and retrieval document/chunk IDs, ranks and available scores. It sends no user or assistant text, rendered
+prompts, retrieval queries, or chunks. Opting in additionally sends rendered assistant text after the
+web adapter's redaction, model input messages (which can contain merchant text, conversation context
+and retrieved excerpts), model completions, retrieval queries and retrieved chunk text. It does not
+send a separate merchant transcript, attachment payloads, card data, raw file bytes, request headers,
+or exception text/stack traces. Additional redaction removes known secrets, common credential formats,
+emails, digit runs in content, and the uploaded filename when present. Free-text redaction is best effort;
+other personal or business information can remain. Limit access and set retention/deletion policies in
+both Langfuse and PostgreSQL (including backups) before opting in. Switching content capture off applies
+to new events only; stop exporters and review existing outbox rows if consent or policy changes.
+
+See [eval and tracing diagnostics](docs/eval.md#per-turn-traces) for retry behavior, trace lookup,
+and delivery troubleshooting.
 
 ## Tests
 

@@ -6,6 +6,7 @@ import json
 import logging
 import re
 
+from copilot.observability import complete_model
 from copilot.prompts import CLASSIFIER_PROMPT, FEW_SHOT, INTENT_SCHEMA, turn_json
 from copilot.say.questions import QUESTIONS, UPLOADS
 from copilot.words import INTENTS, THINK
@@ -70,7 +71,7 @@ def classify(line: str, pending: dict | None, held: bool, complete) -> str | Non
         {"role": "user", "content": turn_json(stage(pending, held), asked(pending, held), line)},
     ]
     for _ in range(2):
-        reply = complete(messages, 24, INTENT_SCHEMA)
+        reply = complete_model("intent-classification", complete, messages, 24, INTENT_SCHEMA)
         if reply is None:
             return None
         intent = parse_intent(reply)

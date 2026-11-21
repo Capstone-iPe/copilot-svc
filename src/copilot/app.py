@@ -21,11 +21,13 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from time import perf_counter
 from typing import Annotated
 from uuid import uuid4
 
 from fastapi import APIRouter, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from psycopg import Error as DatabaseError
 from psycopg import OperationalError
 from pydantic import BaseModel, Field
 
@@ -33,6 +35,7 @@ from copilot.adapters.web import WebAdapter, asking_for, new_message, prompt_vie
 from copilot.dialogue import DialogueState
 from copilot.history import ConversationBusy, ConversationHistory, History
 from copilot.identity import Merchant
+from copilot.observability import LangfuseDelivery, Settings, TurnTrace, export_loop, turn_capture, utcnow
 from copilot.onb.mcp_onb import OnbAsleep
 from copilot.reply import Reply
 from copilot.say.questions import answers as stored_answers
@@ -45,6 +48,7 @@ MerchantVerifier = Callable[[str], Merchant | None]
 log = logging.getLogger("copilot")
 router = APIRouter()
 adapter = WebAdapter()
+VERSION = "0.1.0"
 NOT_FOUND = {"code": "not_found", "message": "No such conversation."}
 INTERRUPTED = (
     "The previous message was interrupted. I refreshed your application and did not resend it. "
@@ -65,10 +69,30 @@ class OpenBody(BaseModel):
 def create_app(start: SessionFactory, history: History, verify: MerchantVerifier) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        settings = Settings.load(VERSION)
+        _app.state.trace_settings = settings
         await history.initialize()
-        yield
+        if settings is None:
+            yield
+            return
+        delivery = LangfuseDelivery(settings)
+        try:
+            await delivery.check_config()
+            stop = asyncio.Event()
+            worker = asyncio.create_task(export_loop(history, settings, delivery, stop))
+            try:
+                yield
+            finally:
+                stop.set()
+                try:
+                    await asyncio.wait_for(worker, timeout=12)
+                except TimeoutError:
+                    log.warning("Langfuse exporter shutdown timed out; outstanding events remain retryable")
+        finally:
+            await delivery.close()
 
-    app = FastAPI(title="iPe copilot", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="iPe copilot", version=VERSION, lifespan=lifespan)
+    app.state.trace_settings = None
     app.state.start = start
     app.state.history = history
     app.state.verify = verify
@@ -259,7 +283,13 @@ async def _resume(
     rendered = adapter.render(Reply(text=text, prompt="", trace={}, step=session.step))
     _update_view(record.view, rendered, dialogue)
     reply = _append_turn(record.view, pending.input["message"], rendered)
-    await record.finish(pending, reply, record.view, asdict(dialogue))
+    trace = None
+    if settings := request.app.state.trace_settings:
+        capture = TurnTrace(settings, bearer, record.owner, pending.input["request"])
+        started = pending.input.get("started_at") or pending.input["message"]["created_at"]
+        trace = capture.payload(record.cid, pending.key, started, "interrupted/recovered",
+                                output=rendered["assistant_texts"] or [""])
+    await record.finish(pending, reply, record.view, asdict(dialogue), trace=trace)
     log.warning("Reconciled interrupted turn for conversation %s without replay", record.cid)
     return session, pending.key
 
@@ -344,6 +374,9 @@ async def _run_turn(
     key: str | None,
     turn_request: dict,
 ) -> dict:
+    settings = request.app.state.trace_settings
+    started = utcnow() if settings else None
+    clock = perf_counter()
     async with request.app.state.history.conversation(cid, owner) as record:
         if record is None:
             raise HTTPException(404, detail=NOT_FOUND)
@@ -371,16 +404,45 @@ async def _run_turn(
         message = new_message("merchant", turn_request["text"], attachments=attachments)
         turn = await record.reserve(key or f"server:{uuid4()}", {
             "request": turn_request, "message": message, "answers": _snapshot_answers(session),
+            **({"started_at": started} if started else {}),
         })
-        try:
-            reply = await session.turn(line)
-        except Exception as exc:
-            log.exception("live ONB turn failed conversation_id=%s", cid)
-            raise _onb_http_error(exc) from exc
-        rendered = adapter.render(reply, line=line)
-        _update_view(record.view, rendered, session.dialogue)
-        reply_msg = _append_turn(record.view, message, rendered)
-        await record.finish(turn, reply_msg, record.view, asdict(session.dialogue))
+        with turn_capture(settings, bearer, owner, turn_request) as capture:
+            decision = None
+            phase = "session_turn"
+            if capture and isinstance(model := getattr(session.chat, "model_name", None), str):
+                capture.model = capture.clean(model, 128, digits=False)
+            try:
+                try:
+                    reply = await session.turn(line)
+                    decision = reply.trace
+                except Exception as exc:
+                    log.exception("live ONB turn failed conversation_id=%s", cid)
+                    raise _onb_http_error(exc) from exc
+                phase = "render_turn"
+                rendered = adapter.render(reply, line=line)
+                _update_view(record.view, rendered, session.dialogue)
+                reply_msg = _append_turn(record.view, message, rendered)
+                trace = None
+                if capture and started:
+                    fallback = (capture.fallbacks or reply.trace.get("source") == "fallback"
+                                or reply.trace.get("reply") == "fallback" or reply.trace.get("action") == "refuse")
+                    trace = capture.payload(
+                        cid, turn.key, started, "fallback/refusal" if fallback else "success",
+                        latency=round((perf_counter() - clock) * 1000, 2),
+                        decision=decision, output=rendered["assistant_texts"] or [""],
+                    )
+                phase = "commit_turn"
+                await record.finish(turn, reply_msg, record.view, asdict(session.dialogue), trace=trace)
+            except Exception:
+                if capture and started:
+                    try:
+                        await record.queue_trace(turn, capture.payload(
+                            cid, turn.key, started, "error", latency=round((perf_counter() - clock) * 1000, 2),
+                            decision=decision, diagnostic=f"{phase}_failed",
+                        ))
+                    except DatabaseError as exc:
+                        log.warning("Could not journal turn failure telemetry (%s)", type(exc).__name__)
+                raise
         return {"conversation": record.view, "reply": reply_msg}
 
 

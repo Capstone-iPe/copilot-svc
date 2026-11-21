@@ -15,6 +15,7 @@ from copilot.dialogue import DialogueState
 from copilot.explain.why import verdict_explanation, why_reply
 from copilot.intent.acts import read_acts
 from copilot.intent.classifier import stage
+from copilot.observability import note_fallback
 from copilot.onb.onb_tools import OnbTools
 from copilot.reply import Reply
 from copilot.say.files import result_reply
@@ -102,6 +103,7 @@ class Session:
                     texts.append(reply)
                 continue
             if kind == "refuse":
+                note_fallback("refusal")
                 texts.append(refusal(str(act.get("reason") or "again"), verdict, line))
                 break
             if kind == "recall_miss":
@@ -174,6 +176,7 @@ class Session:
         result = await self.onb.save_answer(self.application_id, field, value)
         action = {"action": "save", "field": field, "value": value, "correct": correct}
         if result.get("error"):
+            note_fallback("onb_rejected_answer")
             reply, _new = result_reply(action, [result], stored)
             self.step = await self.onb.next_step(self.application_id)
             return reply, False
@@ -238,6 +241,8 @@ class Session:
 
     async def _act(self, snapshot, action, trace):
         results = await self._tools(action)
+        if any(result.get("error") for result in results):
+            note_fallback("onb_rejected_action")
         answers = snapshot.get("answers") if isinstance(snapshot.get("answers"), dict) else {}
         reply, new_verdict = result_reply(action, results, answers)
         written = "template"

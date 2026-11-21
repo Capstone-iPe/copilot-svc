@@ -66,7 +66,47 @@ Every `Session.turn` builds:
 }
 ```
 
-CLI logs this at DEBUG (`copilot` logger). Web/replay adapters expose `trace` on the turn payload. Export those lines (or ship Langfuse/OTel later) for the dashboard row; the schema above is the contract.
+CLI logs this at DEBUG (`copilot` logger); replay can inspect it directly. FastAPI keeps it out of
+merchant JSON and, when [Langfuse is enabled](../README.md#langfuse-turn-tracing-optional), persists
+it as `metadata.reply_trace` with the completed turn. One trace covers each reserved HTTP
+message, upload, or submit. Authentication/validation failures before reservation are not turns.
+
+- In the configured Langfuse project's **Sessions**, use the application ID as the session ID.
+  Find the turn by name (`copilot.message`, `copilot.file`, `copilot.submit`) and UTC time. To
+  look up a specific client turn, query PostgreSQL by `conversation_id` and `turn_key` (the latter
+  is `client:<client_message_id>` when supplied), then search by `trace_id`:
+
+  ```sql
+  SELECT payload->>'trace_id' AS trace_id, revision, attempts, last_error,
+         next_attempt_at, delivered_at
+  FROM copilot_trace_outbox
+  WHERE conversation_id = '<owned application ID>' AND turn_key = 'client:<message ID>'
+  ORDER BY revision;
+  ```
+
+- Child generations distinguish act interpretation, intent classification, and policy/verdict
+  explanation. Name and version hash identify the static messages and schema for each invocation;
+  provider-level HTTP retries are grouped into that operation. Token usage is `unavailable` unless
+  reported by the provider, never estimated by Copilot. Retrieval spans show ranked hits; chunk IDs
+  and scores are absent when the corpus does not return them. The default is metadata-only; see the
+  README for the content opt-in and redaction rules.
+- A handled turn failure after reservation writes an `error` revision. Recovery updates the same
+  logical trace to `interrupted/recovered` without replaying ONB or inventing a completed generation.
+  Recovery latency is unknown. If the process died before journaling, only the recovery revision is
+  available after the next conversation load/turn. An earlier error revision can contain actual
+  observations captured before the failure.
+- The exporter claims outbox rows with PostgreSQL row locks (`SKIP LOCKED`) and orders revisions
+  for a turn. It awaits the pinned official Python SDK's batch ingestion API (the legacy ingestion
+  endpoint) instead of buffered tracing and `flush()`, which cannot confirm each event. A row is
+  delivered only when every event is acknowledged; this means ingestion accepted it, not necessarily
+  that the UI has indexed it. Transport retries reuse the same trace, observation and event IDs.
+  FastAPI lets the active submission finish on shutdown; pending rows survive restarts.
+- Monitor pending count/oldest pending age (`delivered_at IS NULL`) and the `copilot.telemetry`
+  warning logs; delivery errors are logged without exception bodies. Retries back off up to five
+  minutes. Verify credentials, host, network reachability and ingestion compatibility for persistent
+  failures. A changed project public key/base URL does not forward the old project's backlog; use
+  the original destination to drain it or explicitly retire those rows. Restrict outbox access and
+  schedule retention cleanup of delivered rows; there is no automatic purge.
 
 ## Responsible-AI baseline (already in tests)
 

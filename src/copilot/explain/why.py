@@ -7,6 +7,7 @@ import json
 from copilot.explain.checker import critic, without_prompt
 from copilot.explain.fallback import passage_fallback
 from copilot.explain.passages import allowed_ids, prefer_held
+from copilot.observability import complete_model, note_fallback, retrieve
 from copilot.prompts import explain_prompt
 from copilot.words import DOC_ID, FIELD_TOPICS, SLOT_WORDS
 
@@ -34,10 +35,13 @@ def why_instruction(mode: str) -> str:
 def explain(question, passages, instruction, in_force, complete, facts=None):
     """One model sentence from the passages, or None when it fails the check."""
     if not passages:
+        note_fallback("no_policy_passages")
         return None
     quoted = "\n\n".join(row.get("search_text") or row["text"] for row in passages[:3])
     prompt = explain_prompt(instruction)
-    reply = complete(
+    reply = complete_model(
+        "verdict-explanation" if facts is not None else "policy-explanation",
+        complete,
         [
             {"role": "system", "content": prompt},
             {"role": "user", "content": json.dumps({"question": question, "passages": quoted}, ensure_ascii=False)},
@@ -45,7 +49,10 @@ def explain(question, passages, instruction, in_force, complete, facts=None):
         120,
         None,
     )
-    return _checked(reply, prompt, quoted, passages, facts, in_force)
+    checked = _checked(reply, prompt, quoted, passages, facts, in_force)
+    if checked is None:
+        note_fallback("explanation_unavailable_or_rejected")
+    return checked
 
 
 def _checked(reply, prompt, quoted, passages, facts, in_force):
@@ -62,7 +69,7 @@ def why_reply(line, pending, corpus, complete, mode: str = "plain") -> tuple[str
     name = str(pending.get("name") or "") if pending else ""
     topic = FIELD_TOPICS.get(name) or SLOT_WORDS.get(name, "")
     query = f"why {topic}".strip() if topic else line
-    field_hits = prefer_held(corpus.search(query, k=8), corpus.rows)
+    field_hits = prefer_held(retrieve(corpus.search, query, k=8), corpus.rows)
     field_passages = _field_passages(field_hits)
     if mode != "free":
         return _from_passages(why_question(line, topic, mode, set()), field_passages, _PLAIN, corpus, complete)
@@ -71,12 +78,13 @@ def why_reply(line, pending, corpus, complete, mode: str = "plain") -> tuple[str
 
 def _ask_reply(line, field_passages, corpus, complete) -> tuple[str, str]:
     """The merchant's question, then the pending field's own reason."""
-    side_hits = prefer_held(corpus.search(line, k=8), corpus.rows)
+    side_hits = prefer_held(retrieve(corpus.search, line, k=8), corpus.rows)
     side = _other_passages(side_hits, field_passages)
     answer = explain(line, side, _FREE, corpus.document_ids, complete) if side else None
     if answer and side and not DOC_ID.search(answer):
         answer += f" {side[0]['document_id']}."
     if not answer:
+        note_fallback("policy_answer_unavailable")
         answer = "The onboarding policies do not state that."
         if side:
             answer += f" {side[0]['document_id']}."
@@ -135,7 +143,7 @@ def verdict_explanation(verdict: dict, corpus, complete) -> str | None:
         return None
     return explain(
         query,
-        corpus.search(query, k=3),
+        retrieve(corpus.search, query, k=3),
         "Write one short sentence that explains the rule behind this result. Do not restate the "
         "outcome, the reviewer, or the review id.",
         corpus.document_ids,

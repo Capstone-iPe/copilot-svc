@@ -11,6 +11,7 @@ from copilot.intent.classifier import stage
 from copilot.intent.commands import fast_intent
 from copilot.intent.guard import guard_intent
 from copilot.intent.reader import read_intent
+from copilot.observability import complete_model
 from copilot.prompts import READER_PROMPT, READER_SCHEMA
 from copilot.say.questions import question_for
 from copilot.words import DIGITS, EDIT_CUE, FIELD_OF, FIELD_WORD, THINK
@@ -127,7 +128,7 @@ def _model_acts(line, pending, held, snapshot, complete, dialogue: DialogueState
     ]
     for _ in range(2):
         try:
-            reply = complete(messages, 180, READER_SCHEMA)
+            reply = complete_model("act-interpretation", complete, messages, 180, READER_SCHEMA)
         except Exception:
             return None
         parsed = _parse(reply)
