@@ -10,7 +10,6 @@ from copilot.dialogue import DialogueState
 from copilot.intent.classifier import stage
 from copilot.intent.commands import fast_intent
 from copilot.intent.guard import guard_intent
-from copilot.intent.reader import read_intent
 from copilot.observability import complete_model
 from copilot.prompts import READER_PROMPT, READER_SCHEMA
 from copilot.say.questions import question_for
@@ -23,7 +22,9 @@ _RECAP = re.compile(
     re.I,
 )
 _SIDE = re.compile(r"\b(?:what|how|when|where|who|which)\b|\b(?:isn'?t|is not|not enough)\b", re.I)
+_OTHER_QUESTION = re.compile(r"\b(?:what|how|when|where|who)\b|\b(?:isn'?t|is not|not enough)\b", re.I)
 _QUESTION = re.compile(r"\?|\b(?:why|what|how|when|where|who|which)\b", re.I)
+_CHATTER = re.compile(r"\b(?:hi|hello|hey|thanks|thank|ok|okay|hmm|wait|later)\b", re.I)
 
 
 def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> tuple[list[dict], str]:
@@ -36,15 +37,18 @@ def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) 
     if command:
         log.info("model not called: command %s", command)
         return [{"type": command}], "command"
-    parsed = _about_this_line(line, _model_acts(line, pending, held, snapshot, complete, dialogue))
+    raw = _model_acts(line, pending, held, snapshot, complete, dialogue)
+    parsed = _about_this_line(line, raw)
     if _RECAP.search(line):
         return [{"type": "recap"}], "model" if parsed is not None else "fallback"
     if parsed:
-        return _aside(line, parsed), "model"
+        return _aside(line, parsed, pending), "model"
     if EDIT_CUE.search(line) or _other_field(line, pending):
         return [_change(line)], "fallback"
-    intent, source = read_intent(line, pending, held, complete)
-    return [_as_act(intent, line, pending)], source
+    name = str(pending.get("name") or "") if isinstance(pending, dict) and pending.get("kind") == "field" else ""
+    if name and not _CHATTER.search(line) and not _QUESTION.search(line):
+        return [{"type": "answer", "field": name, "value_span": line.strip(), "confidence": "high"}], "fallback"
+    return [{"type": "again"}], "fallback"
 
 
 def _about_this_line(line: str, acts: list[dict] | None) -> list[dict] | None:
@@ -72,25 +76,20 @@ def _contains(span: str, line: str) -> bool:
     return norm(span) in norm(line)
 
 
-def _aside(line: str, acts: list[dict]) -> list[dict]:
-    """A side question stays ask, even when the reader calls it why this field."""
+def _aside(line: str, acts: list[dict], pending) -> list[dict]:
+    """A side question stays ask. Why this field stays why when the line is about that field."""
     if not _SIDE.search(line):
         return acts
+    current = str(pending.get("name") or "") if isinstance(pending, dict) else ""
+    other = bool(_OTHER_QUESTION.search(line) or _other_field(line, pending))
     kept = []
     for act in acts:
-        if act.get("type") in {"why", "out_of_scope"}:
+        field = act.get("field")
+        if act.get("type") in {"why", "out_of_scope"} and (other or not field or field != current):
             kept.append({**act, "type": "ask", "field": None})
         else:
             kept.append(act)
     return kept
-
-
-def _as_act(intent: str, line: str, pending) -> dict:
-    if intent == "answer" and pending and pending.get("kind") == "field":
-        return {"type": "answer", "field": str(pending["name"]), "value_span": line.strip(), "confidence": "high"}
-    if intent == "change_answer":
-        return [_change(line)][0]
-    return {"type": intent or "again"}
 
 
 def _change(line: str) -> dict:

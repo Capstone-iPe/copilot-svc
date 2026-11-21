@@ -143,7 +143,9 @@ def _lead(question: str, filled: int, kind: str) -> str:
 def _lower(prefix: str, question: str) -> str:
     if not question:
         return prefix
-    return f"{prefix} {question[0].lower()}{question[1:]}"
+    if prefix.endswith(","):
+        question = question[0].lower() + question[1:]
+    return f"{prefix} {question}"
 
 
 def _ready(snapshot: dict, slots: dict) -> str:

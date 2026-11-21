@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from copilot.action.check import check_acts
-from copilot.action.closed import list_value
+from copilot.action.closed import heard, list_value
 from copilot.action.decide import apply_decision
 from copilot.action.slots import slot_states
 from copilot.chat.chat_model import ChatModel
@@ -76,6 +77,7 @@ class Session:
                 pending=pending,
                 earlier=self.dialogue.values,
                 last_saved=self.dialogue.last_saved,
+                awaiting=self.dialogue.awaiting,
             ),
             pending,
             snapshot,
@@ -134,12 +136,29 @@ class Session:
                 self.dialogue.awaiting = None
                 texts.append("Okay, we'll leave that as it is.")
                 continue
+            if kind in {"upload", "missing", "submit", "review_id"}:
+                action = apply_decision(line, kind, pending, held, slot_states(snapshot))
+                reply, _written, step = await self._answer(line, pending, snapshot, verdict, action, {})
+                self.step = step
+                if reply:
+                    texts.append(reply)
+                if action.get("action") in {"save", "file", "missing", "submit", "review"}:
+                    saved = True
+                    pending, snapshot, verdict, held = _view(self.step)
+                continue
             if kind in _ASIDE:
                 texts.append(self._aside(kind, line, snapshot, pending, act))
                 continue
         if self.dialogue.awaiting == prior_wait and prior_wait:
-            self.dialogue.awaiting = None
-            self.dialogue.proposed = None
+            kinds = {str(act.get("type") or "") for act in checked}
+            if not kinds or not kinds <= _KEEP_WAIT:
+                self.dialogue.awaiting = None
+                self.dialogue.proposed = None
+        self._missed(pending, saved, checked)
+        if not any(part.strip() for part in texts) and not saved:
+            kinds = {str(act.get("type") or "") for act in checked}
+            if not kinds or not kinds <= _KEEP_WAIT:
+                texts.append("Sorry, I didn't catch that. Could you say it again?")
         action = "save" if saved else str((checked or acts or [{"type": "again"}])[0].get("type") or "again")
         trace = {
             "stage": stage(pending, held),
@@ -159,9 +178,14 @@ class Session:
     async def _save_act(self, act: dict, correct: bool) -> tuple[str | None, bool]:
         field = str(act.get("field") or "")
         value = str(act.get("value_span") or "").strip()
-        picked = list_value(field, value)
+        said = str(act.get("said") or value)
+        picked = list_value(field, value) or list_value(field, said)
+        shown = value
+        phrase = heard(field, said)
         if picked:
             value = picked
+            if phrase and phrase.casefold() != picked.casefold():
+                shown = f"{phrase} (listed as {picked})"
         pending, snapshot, _verdict, _held = _view(self.step)
         stored = answers(snapshot)
         is_pending = (
@@ -174,7 +198,7 @@ class Session:
             label = field.replace("_", " ")
             return f"I still need the current answer before I can store the {label}.", False
         result = await self.onb.save_answer(self.application_id, field, value)
-        action = {"action": "save", "field": field, "value": value, "correct": correct}
+        action = {"action": "save", "field": field, "value": value, "shown": shown, "correct": correct}
         if result.get("error"):
             note_fallback("onb_rejected_answer")
             reply, _new = result_reply(action, [result], stored)
@@ -189,12 +213,31 @@ class Session:
         self.step = await self.onb.next_step(self.application_id)
         return reply, True
 
+    def _missed(self, pending, saved: bool, checked: list[dict]) -> None:
+        name = pending.get("name") if isinstance(pending, dict) and pending.get("kind") == "field" else None
+        kinds = {str(act.get("type") or "") for act in checked}
+        if saved or not name:
+            self.dialogue.misses = 0
+            self.dialogue.miss_field = None
+            return
+        if kinds and kinds <= _KEEP_WAIT:
+            return
+        if self.dialogue.miss_field != name:
+            self.dialogue.misses = 1
+            self.dialogue.miss_field = name
+            return
+        self.dialogue.misses += 1
+
     def _aside(self, kind: str, line: str, snapshot: dict, pending, act: dict | None = None) -> str:
         if kind == "chitchat":
-            low = line.strip().lower().rstrip("?.! ")
+            low = line.strip().lower()
             if "thank" in low:
                 return "You're welcome."
-            return "Hi! Let's carry on."
+            if re.search(r"\b(?:hi|hello|hey)\b", low):
+                return "Hi!"
+            if re.search(r"\b(?:ok|okay|sure|great|yes|haan)\b", low):
+                return "Great."
+            return ""
         if kind == "pause":
             return "Sure, take your time. Everything so far is saved. Just come back and we'll continue from here."
         if kind == "undo":
@@ -277,6 +320,7 @@ class Session:
         return results
 
 _ASIDE = {"chitchat", "pause", "recap", "undo", "change_request"}
+_KEEP_WAIT = {"why", "ask", "chitchat", "recap", "pause"}
 _ACT_SAVE = {"answer", "correct"}
 
 
@@ -296,6 +340,14 @@ def _recap(snapshot: dict) -> str:
 
 
 def _prompt(session: Session) -> str:
+    pending = session.step.get("pending") if isinstance(session.step.get("pending"), dict) else None
+    if (
+        pending
+        and pending.get("name") == "stores_payer_phones"
+        and session.dialogue.miss_field == "stores_payer_phones"
+        and session.dialogue.misses >= 2
+    ):
+        return "Just type yes or no."
     waiting = session.dialogue.awaiting or ""
     if waiting.startswith("value_for:"):
         from copilot.say.questions import QUESTIONS

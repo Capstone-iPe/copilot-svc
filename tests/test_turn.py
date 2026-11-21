@@ -254,6 +254,26 @@ def test_a_side_question_is_not_read_as_why_this_field() -> None:
     assert acts[0]["field"] is None
 
 
+def test_which_city_stays_why_this_field() -> None:
+    note = json.dumps({"acts": [{"type": "why", "field": "city"}], "confidence": "high"})
+
+    class _Chat:
+        def complete(self, messages, max_tokens, schema=None):
+            return note
+
+    acts, source = read_acts(
+        "why do you need to know which city?",
+        {"kind": "field", "name": "city"},
+        False,
+        {"answers": {}},
+        _Chat().complete,
+        DialogueState(),
+    )
+    assert source == "model"
+    assert acts[0]["type"] == "why"
+    assert acts[0]["field"] == "city"
+
+
 def test_why_does_not_save() -> None:
     pending = {"kind": "field", "name": "city"}
     assert apply_decision("But why do you need that?", "why", pending, False, SLOTS) == {

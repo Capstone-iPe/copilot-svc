@@ -14,6 +14,8 @@ class DialogueState:
     awaiting: str | None = None
     proposed: dict | None = None
     last_saved: str | None = None
+    misses: int = 0
+    miss_field: str | None = None
     values: dict[str, list[str]] = field(default_factory=dict)
     recent: list[tuple[str, str]] = field(default_factory=list)
 

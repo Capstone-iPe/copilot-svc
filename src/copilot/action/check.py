@@ -56,6 +56,7 @@ _QUESTION_AFTER = re.compile(
     re.I,
 )
 _IN_CITY = re.compile(r"^(?P<name>.+?) in (?P<city>[A-Z][a-z]+(?: [A-Z][a-z]+)?)$")
+_NOT_A_CITY = {"india"}
 _CITY_AND_TYPE = re.compile(
     r"^(?P<city>[^,]+?),\s+and\s+(?P<tail>it(?:'s| is)\s+.+)$",
     re.I,
@@ -74,9 +75,11 @@ def check_acts(
     pending=None,
     earlier: dict[str, list[str]] | None = None,
     last_saved: str | None = None,
+    awaiting: str | None = None,
 ) -> list[dict]:
     if _pure_history(line):
         return [_recall(line, earlier or {}, last_saved)]
+    acts = _confirm_labels(acts, line, pending, awaiting)
     acts = _prefer_stated(acts, line)
     kept: list[dict] = []
     for act in acts:
@@ -92,11 +95,25 @@ def check_acts(
             continue
         field = str(act.get("field") or "")
         value = str(act.get("value_span") or "").strip()
-        if field not in FIELDS:
+        invented = field not in FIELDS
+        if invented:
             field = _fits_pending(pending, value, line)
-            if field:
-                act = {**act, "type": "answer", "field": field}
+        field = _closed_pending(pending, field, value, line)
+        waited = _awaited_field(awaiting, line, value)
+        if waited:
+            field = waited
+            act = {**act, "type": "correct", "field": field}
+        elif invented and field:
+            act = {**act, "type": "answer", "field": field}
+        elif field:
+            act = {**act, "field": field}
+        if field == "stores_payer_phones":
+            answer = _yes_no(line)
+            if answer:
+                value = answer
         if field not in FIELDS or not value or not _in_line(value, line):
+            continue
+        if field == "shop_name" and _NAME_SENTENCE.search(value):
             continue
         if EDIT_CUE.search(value) or _names_other(value, field):
             kept.append(_change(line))
@@ -124,10 +141,70 @@ def check_acts(
                     kept.append({"type": "refuse", "reason": bad})
                     continue
                 value = normalize_closed(field, value)
-        kept.append({**act, "field": field, "value_span": value})
+        kept.append({**act, "field": field, "value_span": value, "said": str(act.get("value_span") or value)})
     if not held:
         kept = _pair(kept, line, pending)
     return _merge_payments(_with_question(kept, line))
+
+
+def _confirm_labels(acts: list[dict], line: str, pending, awaiting: str | None) -> list[dict]:
+    """confirm_yes and confirm_no count only while a confirmation is open."""
+    waiting = awaiting or ""
+    name = str(pending.get("name") or "") if isinstance(pending, dict) else ""
+    kept = []
+    for act in acts:
+        kind = str(act.get("type") or "")
+        if kind not in {"confirm_yes", "confirm_no"}:
+            kept.append(act)
+            continue
+        if waiting.startswith("confirm:"):
+            kept.append(act)
+            continue
+        if kind == "confirm_no" and waiting.startswith("value_for:"):
+            kept.append(act)
+            continue
+        answer = _yes_no(line)
+        if name == "stores_payer_phones" and answer:
+            kept.append({
+                "type": "answer",
+                "field": "stores_payer_phones",
+                "value_span": line.strip(),
+                "canonical": answer,
+            })
+    return kept
+
+
+def _yes_no(line: str) -> str | None:
+    match = re.fullmatch(r"\s*(yes|no|haan|nahi)\s*[.!]?\s*", line, re.I)
+    if not match:
+        return None
+    return "Yes" if match.group(1).lower() in {"yes", "haan"} else "No"
+
+
+def _closed_pending(pending, field: str, value: str, line: str) -> str:
+    """A short closed answer belongs to the question on screen, not the previous field."""
+    if not isinstance(pending, dict) or pending.get("kind") != "field" or not value:
+        return field
+    name = str(pending.get("name") or "")
+    if name not in CLOSED_FIELDS or name == field:
+        return field
+    if EDIT_CUE.search(line) or _names_other(line, name):
+        return field
+    if closed_error(name, value) is not None and not list_value(name, line):
+        return field
+    return name
+
+
+def _awaited_field(awaiting: str | None, line: str, value: str) -> str:
+    """A value after 'what should the shop name be?' fills that field."""
+    if not awaiting or not awaiting.startswith("value_for:") or not value or _QUESTION_AFTER.search(line):
+        return ""
+    if re.search(r"\b(?:why|what|how|when|where|who|which)\b|\?", line, re.I):
+        return ""
+    wanted = awaiting.split(":", 1)[1]
+    if wanted not in FIELDS or _names_other(line, wanted):
+        return ""
+    return wanted
 
 
 def _fits_pending(pending, value: str, line: str) -> str:
@@ -179,17 +256,18 @@ def _prefer_stated(acts: list[dict], line: str) -> list[dict]:
     wanted = stated["value_span"].casefold()
     field = stated["field"]
     has_save = False
-    better = False
+    replace = False
     for act in acts:
         kind = str(act.get("type") or "")
         if kind == "change_request":
-            better = True
-        if kind in {"answer", "correct"}:
-            has_save = True
-            got = str(act.get("value_span") or "").strip().casefold()
-            if act.get("field") != field or got != wanted:
-                better = True
-    if has_save and not better:
+            replace = True
+        if kind not in {"answer", "correct"}:
+            continue
+        has_save = True
+        got = str(act.get("value_span") or "").strip().casefold()
+        if act.get("field") != field or (wanted in got and got != wanted) or (wanted not in got and got not in wanted):
+            replace = True
+    if has_save and not replace:
         return acts
     kept = []
     used = False
@@ -278,9 +356,14 @@ def _pair(acts: list[dict], line: str, pending) -> list[dict]:
     """A second answer in the same line is saved with the first."""
     name = pending.get("name") if isinstance(pending, dict) and pending.get("kind") == "field" else ""
     found = _IN_CITY.match(line.strip())
-    if found and name == "shop_name" and not _NAME_SENTENCE.search(found.group("name")):
+    city = found.group("city").strip() if found else ""
+    if (
+        found
+        and name == "shop_name"
+        and city.casefold() not in _NOT_A_CITY
+        and not _NAME_SENTENCE.search(found.group("name"))
+    ):
         shop = found.group("name").strip()
-        city = found.group("city").strip()
         acts = _use_value(acts, "shop_name", shop, line)
         return _add_if_missing(acts, "city", city, line)
     found = _CITY_AND_TYPE.match(line.strip())

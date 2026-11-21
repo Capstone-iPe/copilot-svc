@@ -100,6 +100,17 @@ _NEGATED = re.compile(
 CLOSED_FIELDS = frozenset({"business_type", "payment_methods", "stores_payer_phones"})
 
 
+def heard(field: str, text: str) -> str | None:
+    """The merchant's own word that list_value accepted."""
+    if field == "business_type":
+        phrases = _positive(text, _BUSINESS_RE)
+        return phrases[-1] if phrases else None
+    if field == "payment_methods":
+        words = _positive(text, _PAYMENT_RE)
+        return ", ".join(words) if words else None
+    return None
+
+
 def list_value(field: str, text: str) -> str | None:
     """The closed-list value supported by a word in text. A negated word does not count."""
     if field == "business_type":

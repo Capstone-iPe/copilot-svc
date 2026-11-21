@@ -121,6 +121,8 @@ READER_PROMPT = (
     "ask is any other question: what a word means, why something else is not enough, fees, MDR, "
     "or settlement. what is UPI, why isn't cash enough, and why isn't a lease enough are ask, "
     "even while another field is on screen.\n"
+    "If awaiting is null, yes and no answer the pending question. "
+    "Use confirm_yes and confirm_no only when awaiting is set.\n"
     "If awaiting is confirm:FIELD, yes is confirm_yes and no is confirm_no. Any other line is read on its own.\n"
     "If awaiting is value_for:FIELD, a new value in the line is correct for that field. "
     "never mind, forget it, leave it, and cancel are confirm_no.\n"

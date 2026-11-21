@@ -337,10 +337,10 @@ def test_a_later_field_is_not_stored_quietly() -> None:
 
 
 def test_undo_asks_for_the_last_saved_field() -> None:
-    session, onb = _session()
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Sharma Sweets"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
     asyncio.run(session.turn("Sharma Sweets"))
-    note = '{"acts":[{"type":"undo"}],"confidence":"high"}'
-    session.chat = Scripted(note)
+    session.chat = Scripted('{"acts":[{"type":"undo"}],"confidence":"high"}')
 
     reply = asyncio.run(session.turn("please undo that last answer"))
 
@@ -438,6 +438,23 @@ def test_a_later_question_counts_and_starts_lower() -> None:
     assert "city" in shown.lower()
 
 
+def test_almost_done_keeps_a_capital_question() -> None:
+    step = {
+        "pending": {"kind": "field", "name": "payment_methods"},
+        "snapshot": {
+            "answers": {
+                "shop_name": "Sharma Sweets",
+                "city": "Pune",
+                "business_type": "retail",
+                "monthly_volume": "120000",
+            },
+            "files": {},
+        },
+    }
+    shown = prompt_for(step)
+    assert "Almost done. Which" in shown
+
+
 def test_a_finished_form_lists_answers_before_submit() -> None:
     step = {
         "pending": None,
@@ -465,7 +482,7 @@ def test_a_dhaba_is_stored_as_a_restaurant() -> None:
     reply = asyncio.run(session.turn("it's a dhaba"))
 
     assert onb.answers["business_type"] == "restaurant"
-    assert reply.text.startswith("Got it, restaurant.")
+    assert reply.text.startswith("Got it, dhaba (listed as restaurant).")
 
 
 def test_a_salon_is_stored_as_salon() -> None:
@@ -661,10 +678,178 @@ def test_a_city_and_its_shop_kind_are_both_saved() -> None:
     assert "Got it, retail." in reply.text
 
 
+def test_made_in_india_stays_the_shop_name() -> None:
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Made in India"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    asyncio.run(session.turn("Made in India"))
+
+    assert onb.answers == {"shop_name": "Made in India"}
+
+
+def test_a_wider_city_phrase_keeps_the_models_city() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Blue Anchor Dhaba"}
+    note = '{"acts":[{"type":"answer","field":"city","value_span":"Pune"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("the city is where my brother lives, Pune"))
+
+    assert onb.answers["city"] == "Pune"
+
+
+def test_a_different_named_value_still_replaces_the_models_value() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Sarma Sweets"}
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"Sarma"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("sorry, the shop name is Sharma"))
+
+    assert onb.answers["shop_name"] == "Sharma"
+
+
 def test_a_sentence_with_in_is_not_split_into_a_city() -> None:
     note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"we\'re based in Noida"}],"confidence":"high"}'
     session, onb = _session(chat=Scripted(note))
 
-    asyncio.run(session.turn("we're based in Noida"))
+    reply = asyncio.run(session.turn("we're based in Noida"))
 
-    assert onb.answers == {"shop_name": "we're based in Noida"}
+    assert onb.answers == {}
+    assert "didn't catch" in reply.text.lower()
+    assert reply.step["pending"]["name"] == "shop_name"
+
+
+def test_no_on_the_phones_question_is_saved() -> None:
+    onb = Shop()
+    onb.order = ["stores_payer_phones"]
+    note = '{"acts":[{"type":"confirm_no"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("no"))
+
+    assert onb.answers["stores_payer_phones"] == "No"
+    assert "No" in reply.text
+
+
+def test_yes_labeled_as_payments_fills_the_phones_question() -> None:
+    onb = Shop()
+    onb.order = ["stores_payer_phones"]
+    onb.answers = {"payment_methods": "cash"}
+    note = '{"acts":[{"type":"answer","field":"payment_methods","value_span":"yes"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("yes"))
+
+    assert onb.answers["stores_payer_phones"] == "Yes"
+    assert onb.answers["payment_methods"] == "cash"
+
+
+def test_confirm_yes_with_nothing_proposed_is_not_silent() -> None:
+    note = '{"acts":[{"type":"confirm_yes"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+
+    reply = asyncio.run(session.turn("yes"))
+
+    assert onb.answers == {}
+    assert reply.text.strip()
+
+
+def test_no_still_cancels_a_real_confirmation() -> None:
+    note = '{"acts":[{"type":"confirm_no"}],"confidence":"high"}'
+    session, onb = _session(chat=Scripted(note))
+    session.dialogue.awaiting = "confirm:shop_name"
+    session.dialogue.proposed = {"field": "shop_name", "value": "Nope Stores"}
+
+    reply = asyncio.run(session.turn("no"))
+
+    assert onb.answers == {}
+    assert "leave that" in reply.text.lower()
+
+
+def test_a_dead_model_does_not_save_free_text() -> None:
+    class Mute(ChatModel):
+        def complete(self, messages, max_tokens, schema=None):
+            return None
+
+    session, onb = _session(chat=Mute())
+
+    reply = asyncio.run(session.turn("ok thanks"))
+
+    assert onb.answers == {}
+    assert "didn't catch" in reply.text.lower()
+    assert reply.step["pending"]["name"] == "shop_name"
+
+
+def test_ok_is_not_greeted_as_hi() -> None:
+    chat = Scripted('{"acts":[{"type":"chitchat"}],"confidence":"high"}')
+    session, _onb = _session(chat=chat)
+
+    reply = asyncio.run(session.turn("ok"))
+
+    assert reply.text == "Great."
+    assert "Hi!" not in reply.text
+
+
+def test_a_why_keeps_the_value_we_were_waiting_for() -> None:
+    onb = Shop()
+    onb.index = 1
+    onb.answers = {"shop_name": "Old Name"}
+    session, onb = _session(
+        onb,
+        asyncio.run(onb.next_step()),
+        Scripted('{"acts":[{"type":"change_request","field":"shop_name"}],"confidence":"high"}'),
+    )
+    first = asyncio.run(session.turn("can I change the shop name?"))
+    assert "shop name" in first.text.lower()
+    session.chat = Scripted('{"acts":[{"type":"why","field":"shop_name"}],"confidence":"high"}')
+    asyncio.run(session.turn("why do you need it?"))
+    assert session.dialogue.awaiting == "value_for:shop_name"
+    session.chat = Scripted(
+        '{"acts":[{"type":"answer","field":"city","value_span":"Sharma Sweets"}],"confidence":"high"}'
+    )
+
+    asyncio.run(session.turn("Sharma Sweets"))
+
+    assert onb.answers["shop_name"] == "Sharma Sweets"
+
+
+def test_the_phones_question_changes_after_two_misses() -> None:
+    onb = Shop()
+    onb.order = ["stores_payer_phones"]
+    note = '{"acts":[{"type":"answer","field":"stores_payer_phones","value_span":"maybe"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("maybe"))
+    reply = asyncio.run(session.turn("maybe"))
+
+    assert onb.answers == {}
+    assert reply.prompt == "Just type yes or no."
+
+
+def test_a_named_file_from_the_model_is_stored() -> None:
+    onb = Shop()
+    step = {
+        "application_id": "app_1",
+        "pending": {"kind": "upload", "name": "bank_proof"},
+        "snapshot": {"answers": {}, "files": {}},
+    }
+
+    async def next_step(application_id=None):
+        return step
+
+    async def save_file(application_id, slot, file=None, missing=False):
+        onb.calls.append(("save_file", slot, file, missing))
+        return {"state": "accepted"}
+
+    onb.next_step = next_step
+    onb.save_file = save_file
+    note = '{"acts":[{"type":"upload"}],"confidence":"high"}'
+    session, onb = _session(onb, step, Scripted(note))
+
+    reply = asyncio.run(session.turn("here's the bank letter bank-proof.pdf"))
+
+    assert ("save_file", "bank_proof", "bank-proof.pdf", False) in onb.calls
+    assert "accepted" in reply.text.lower()

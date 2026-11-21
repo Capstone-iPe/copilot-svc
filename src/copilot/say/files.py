@@ -53,7 +53,7 @@ def result_reply(action: dict, results: list[dict], answers: dict) -> tuple[str,
 
 def _parts(action: dict, results: list[dict]) -> list[str]:
     if action["action"] == "save":
-        value = str(action.get("value") or "").strip()
+        value = str(action.get("shown") or action.get("value") or "").strip()
         if action.get("correct"):
             label = _FIELD_LABEL.get(str(action.get("field") or ""), "answer")
             return [f"No problem, I've updated the {label} to {value}."]

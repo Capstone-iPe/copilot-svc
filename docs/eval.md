@@ -108,6 +108,17 @@ message, upload, or submit. Authentication/validation failures before reservatio
   the original destination to drain it or explicitly retire those rows. Restrict outbox access and
   schedule retention cleanup of delivered rows; there is no automatic purge.
 
+## Natural turns (replay/natural)
+
+One merchant line per row. This is not the 71-shop gold set. A row is played when the runner can reach the labeled pending field.
+
+| Set | Rows | Played | Wrong field | Small talk saved | Field | Value | Act | Back on question |
+|---|---|---|---|---|---|---|---|---|
+| Turns | 345 | 289 | 60 | 0 | 79% | 74% | 66% | 100% |
+| Holdout | 40 | 39 | 10 | 0 | 74% | 72% | 59% | 100% |
+
+Command: `PYTHONPATH=src:replay .venv/bin/python replay/natural_run.py`. The plan's 95% gates are not met. The holdout is run once and is not used to change the reader.
+
 ## Responsible-AI baseline (already in tests)
 
 - Adversarial lines → refuse before the model (`tests/adversarial.txt`)
