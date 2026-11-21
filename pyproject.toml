@@ -8,6 +8,7 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "python-dotenv",
+    "psycopg[binary]>=3.2",
 ]
 
 [tool.pytest.ini_options]

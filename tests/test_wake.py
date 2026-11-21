@@ -78,7 +78,7 @@ def test_a_rejected_token_is_not_retried(monkeypatch) -> None:
     assert opened["n"] == 1
 
 
-def test_a_dropped_tool_call_is_retried(monkeypatch) -> None:
+def test_a_dropped_read_only_tool_call_is_retried(monkeypatch) -> None:
     opened = {"n": 0}
 
     async def connect(url, bearer_fn):
@@ -92,9 +92,29 @@ def test_a_dropped_tool_call_is_retried(monkeypatch) -> None:
     monkeypatch.setattr("copilot.onb.mcp_onb.asyncio.sleep", sleep)
     onb = LiveOnb("https://onb.example/mcp", lambda: "token")
 
-    step = asyncio.run(onb.next_step())
+    step = asyncio.run(onb.next_step("app_1"))
 
     assert step["pending"]["name"] == "shop_name"
+    assert opened["n"] == 2
+
+
+@pytest.mark.parametrize(("method", "args"), [
+    ("next_step", ()),
+    ("save_answer", ("app_1", "shop_name", "Lotus")),
+    ("save_file", ("app_1", "owner_id", "owner.pdf")),
+    ("submit", ("app_1",)),
+])
+def test_a_dispatched_write_is_not_retried_after_a_lost_response(monkeypatch, method, args) -> None:
+    client = _Client(fail_times=1)
+
+    async def connect(url, bearer_fn):
+        return client, _Http()
+
+    monkeypatch.setattr("copilot.onb.mcp_onb.connect_bearer", connect)
+    onb = LiveOnb("https://onb.example/mcp", lambda: "token")
+    with pytest.raises(TimeoutError):
+        asyncio.run(getattr(onb, method)(*args))
+    assert client.calls == 1
 
 
 def test_onb_still_asleep_is_not_a_sign_in_error() -> None:

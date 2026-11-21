@@ -13,6 +13,10 @@ services:
     startCommand: PYTHONPATH=src python -m copilot
     healthCheckPath: /v1/health
     envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
       - key: CHAT_BASE_URL
         value: https://103.42.50.41:1032/v1
       - key: CHAT_CA_CERT

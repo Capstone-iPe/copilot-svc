@@ -6,6 +6,7 @@ Not the deploy path. Deploy uses live.py and the FE's Bearer token.
 from __future__ import annotations
 
 import sys
+from functools import lru_cache
 from pathlib import Path
 
 from copilot.chat.qwen_chat import QwenChat
@@ -13,6 +14,7 @@ from copilot.corpus.remote import RemoteCorpus
 from copilot.session import Session
 
 
+@lru_cache(maxsize=1)
 def _memory_onb():
     copilot_svc = Path(__file__).resolve().parents[2]
     onb_src = copilot_svc.parent / "onb-svc" / "src"

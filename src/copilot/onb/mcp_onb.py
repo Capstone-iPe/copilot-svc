@@ -90,6 +90,7 @@ class LiveOnb(OnbTools):
         return await self._run("get_review", application_id)
 
     async def _run(self, method: str, *args, **kwargs):
+        read_only = method == "get_review" or (method == "next_step" and bool(args[0]))
         last: Exception | None = None
         for delay in _DELAYS:
             if delay:
@@ -104,7 +105,8 @@ class LiveOnb(OnbTools):
                 return await getattr(McpOnb(client), method)(*args, **kwargs)
             except Exception as exc:
                 last = exc
-                if not await _retry_tool(exc, http, self.mcp_url):
+                # Once dispatched, a write may have succeeded even if its response was lost.
+                if not read_only or not await _retry_tool(exc, http, self.mcp_url):
                     raise
                 log.info("ONB %s failed while the service wakes; retrying", method)
             finally:

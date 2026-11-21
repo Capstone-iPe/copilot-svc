@@ -1,6 +1,8 @@
 """Opening welcome matches the prototype; name comes from Google userinfo."""
 
-from copilot.identity import merchant_call_name
+import pytest
+
+from copilot.identity import Merchant, merchant_call_name, verify_merchant
 from copilot.say.greeting import welcome_text
 
 
@@ -35,3 +37,19 @@ def test_call_name_none_when_userinfo_fails(monkeypatch) -> None:
 
     monkeypatch.setattr("copilot.identity._userinfo", boom)
     assert merchant_call_name("not-google") is None
+
+
+@pytest.mark.parametrize(("audience", "token_subject", "verified", "expected"), [
+    ("web", "123", True, Merchant("google:123", "Ada")),
+    ("other", "123", True, None),
+    ("web", "456", True, None),
+    ("web", "123", False, None),
+])
+def test_merchant_requires_the_allowed_audience_and_a_verified_subject(
+    monkeypatch, audience, token_subject, verified, expected,
+) -> None:
+    monkeypatch.setattr("copilot.identity._get_json", lambda _url: {"aud": audience, "sub": token_subject})
+    monkeypatch.setattr("copilot.identity._userinfo", lambda _token: {
+        "sub": "123", "email_verified": verified, "given_name": "Ada Lovelace",
+    })
+    assert verify_merchant("google-token", frozenset({"web"})) == expected

@@ -36,6 +36,8 @@ Place `vm06-ca.crt` at the repo root locally (gitignored). On Render, mount it a
 | `ONB_MCP_URL` | Live ONB MCP endpoint (CLI / web) |
 | `CORPUS_SEARCH_URL` | onb-corpus base URL |
 | `CORPUS_API_KEY` | Bearer for `/v1/search` (same secret as onb-corpus) |
+| `DATABASE_URL` | Required for FastAPI: shared PostgreSQL connection string |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID used by the web UI; `GOOGLE_ALLOWED_AUDIENCES` can list additional client IDs |
 
 ## Setup
 
@@ -94,7 +96,7 @@ Scores, failure taxonomy, and trace schema: [docs/eval.md](docs/eval.md).
 ```bash
 PYTHONPATH=src .venv/bin/python -m copilot
 
-# Laptop-only in-process ONB (sibling onb-svc checkout):
+# Laptop-only in-process ONB (sibling onb-svc checkout; ONB state will not survive process restarts):
 USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 ```
 
@@ -102,6 +104,30 @@ HTTP shape matches the web-app chat contract (`ConversationView`, list/load, mul
 Pills are upload/submit only — no suggestion chips. The FE refreshes Google; this service forwards the bearer to ONB.
 
 Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com)
+
+Provision a non-expiring PostgreSQL database and set `DATABASE_URL` and `GOOGLE_CLIENT_ID` in the Render dashboard.
+Use the same database for all Copilot instances and deployments. Use a direct connection or a session-mode pooler
+(the service uses PostgreSQL session-level advisory locks). Copilot creates its tables at startup; the database role
+needs permission to create them. The service will not start without storage and token-verification configuration.
+
+### Conversation history and retries
+
+- The authenticated Google token's subject determines the merchant ID. An optional `X-Merchant-Id` header must match.
+  Supply a known, owned conversation/application ID to resume, or omit it to create a new application. Old
+  applications without an ownership record in Copilot cannot be imported by passing their ID.
+- History includes the transcript, the current **UI prompt**, and Copilot dialogue state (including pending
+  corrections and confirmations). On resume, Copilot reopens the same ONB application with the current bearer
+  and refreshes the UI from its latest snapshot. The API's `prompt` field is **not** an LLM system prompt. Exact model
+  prompt reproduction is not part of this history; it would require tracking versions or hashes of the prompts used.
+- Send a `client_message_id` with each message or submit (JSON) and upload (multipart form field). Reuse it with the
+  same input for retries. A completed retry returns the saved reply without another ONB call; reusing the ID for
+  different input returns `409`. Requests without an ID still work, but cannot deduplicate a committed retry.
+- The transcript, dialogue state, and reply become saved when their database transaction commits. Before contacting
+  ONB for a turn, Copilot commits a pending record. If the turn is interrupted, the next load or turn refreshes the
+  ONB snapshot, appends the interrupted input and a recovery notice, and clears any pending confirmation/correction.
+  It does **not** replay the ONB operation: ONB may have applied none, some, or all of it. Review the refreshed
+  application before making a new attempt. Concurrent requests can receive `409 conversation_busy`; retry with
+  the same ID. Upload history stores attachment metadata only, not file bytes.
 
 In copilot-web-app `.env`:
 
@@ -117,6 +143,9 @@ CHAT_SERVICE_URL=https://copilot-svc.onrender.com
 ```bash
 PYTHONPATH=src .venv/bin/python -m pytest -q
 ```
+
+Set `TEST_DATABASE_URL` to a test PostgreSQL database to run the HTTP integration tests (each test creates and
+removes an isolated schema). Without it, those integration tests are skipped.
 
 ## Architecture (short)
 

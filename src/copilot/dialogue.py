@@ -17,6 +17,12 @@ class DialogueState:
     values: dict[str, list[str]] = field(default_factory=dict)
     recent: list[tuple[str, str]] = field(default_factory=list)
 
+    @classmethod
+    def restore(cls, saved: dict) -> DialogueState:
+        state = cls(**saved)
+        state.recent = [(role, text) for role, text in state.recent]
+        return state
+
     def remember(self, name: str, value: str) -> None:
         prior = self.values.setdefault(name, [])
         if value and (not prior or prior[-1] != value):

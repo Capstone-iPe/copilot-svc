@@ -4,3 +4,4 @@ uvicorn
 python-dotenv
 httpx
 python-multipart
+psycopg[binary]>=3.2
