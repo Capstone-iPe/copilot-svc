@@ -34,7 +34,7 @@ from pydantic import BaseModel, Field
 from copilot.adapters.web import WebAdapter, asking_for, new_message, prompt_view
 from copilot.dialogue import DialogueState
 from copilot.history import ConversationBusy, ConversationHistory, History
-from copilot.identity import Merchant
+from copilot.identity import AudienceRejected, Merchant
 from copilot.observability import LangfuseDelivery, Settings, TurnTrace, export_loop, turn_capture, utcnow
 from copilot.onb.mcp_onb import OnbAsleep
 from copilot.reply import Reply
@@ -115,7 +115,13 @@ def _bearer(authorization: str | None) -> str:
 
 async def _authenticate(request: Request, authorization: str | None, claimed_id: str | None) -> tuple[str, Merchant]:
     bearer = _bearer(authorization)
-    merchant = await asyncio.to_thread(request.app.state.verify, bearer)
+    try:
+        merchant = await asyncio.to_thread(request.app.state.verify, bearer)
+    except AudienceRejected:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "forbidden", "message": "This Google client is not allowed."},
+        ) from None
     if merchant is None or (claimed_id is not None and claimed_id.strip() != merchant.id):
         raise HTTPException(
             status_code=401,

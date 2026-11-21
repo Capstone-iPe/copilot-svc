@@ -21,11 +21,19 @@ class Merchant:
     name: str | None = None
 
 
+class AudienceRejected(Exception):
+    """The access token was issued for a client outside the allowed set."""
+
+
 def verify_merchant(access_token: str, audiences: frozenset[str]) -> Merchant | None:
     try:
         info = _get_json(f"{TOKENINFO_URL}?{urlencode({'access_token': access_token})}")
-        if (info.get("aud") or info.get("azp")) not in audiences:
-            return None
+    except (ValueError, TypeError):
+        return None
+    audience = str(info.get("aud") or info.get("azp") or "").strip()
+    if audience not in audiences:
+        raise AudienceRejected()
+    try:
         profile = _userinfo(access_token)
     except (ValueError, TypeError):
         return None
