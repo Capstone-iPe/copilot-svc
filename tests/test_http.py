@@ -334,6 +334,53 @@ def test_upload_retry_persists_attachment_once(open_client):
     assert [m["attachments"] for m in messages] == [[{"document": "owner_id", "filename": "owner.pdf"}]]
 
 
+def test_file_upload_propagates_evidence_reason(open_client) -> None:
+    onb = FakeOnb()
+    onb.step["pending"] = {"kind": "upload", "name": "business_registration"}
+
+    async def fake_save_file(aid, slot, file=None, missing=False):
+        evidence = {
+            "verifier": "llm",
+            "detected_doc_type": "Business Registration Certificate",
+            "legal_name_found": "Lotus Tea House",
+            "reason": "Valid certificate matching declared legal name",
+        }
+        onb.step["snapshot"]["files"][slot] = {
+            "state": "accepted",
+            "reason_code": "ok",
+            "evidence": evidence,
+        }
+        onb.step["pending"] = {"kind": "upload", "name": "owner_id"}
+        return {
+            "application_id": aid,
+            "slot": slot,
+            "state": "accepted",
+            "reason_code": "ok",
+            "verifier": "llm",
+            "evidence": evidence,
+        }
+
+    onb.save_file = fake_save_file
+    start, _ = factory(onb)
+    path = f"{ROOT}/{APP_ID}/files"
+    payload = {
+        "data": {"client_message_id": "test_upload_1", "document": "business_registration"},
+        "files": {"file": ("registration.pdf", b"pdf")},
+    }
+    with open_client(start) as client:
+        assert client.post(ROOT, headers=AUTH).status_code == 201
+        res = client.post(path, headers=AUTH, **payload)
+        assert res.status_code == 200
+        data = res.json()
+        assert "evidence" in data
+        assert data["evidence"]["verifier"] == "llm"
+        assert data["evidence"]["reason"] == "Valid certificate matching declared legal name"
+        assert "files" in data["conversation"]
+        assert data["conversation"]["files"]["business_registration"]["evidence"]["verifier"] == "llm"
+        assert "Valid certificate matching declared legal name" in data["reply"]["text"]
+
+
+
 def _outbox(history):
     with psycopg.connect(history.dsn) as conn:
         return conn.execute("""

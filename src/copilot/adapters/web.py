@@ -54,6 +54,7 @@ class WebAdapter(Adapter):
             "review_id": None,
             "result": None,
             "steps": steps_for(asking, "DRAFT"),
+            "files": snapshot.get("files") or {},
         }
 
     def render(self, reply: Reply, *, line: str = "") -> dict:
@@ -89,6 +90,7 @@ class WebAdapter(Adapter):
             "result": result,
             "steps": steps_for(asking, status),
             "card": _result_card(result) if result else None,
+            "files": snapshot.get("files") or {},
         }
 
 

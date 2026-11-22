@@ -109,3 +109,36 @@ def test_a_shop_name_that_says_ignore_policy_is_stored() -> None:
     asyncio.run(session.turn(line))
 
     assert ("save_answer", "shop_name", line) in onb.calls
+
+
+def test_file_upload_includes_evidence_reason() -> None:
+    onb = FakeOnb()
+    step_with_upload = {
+        "application_id": "app",
+        "pending": {"kind": "upload", "name": "business_registration"},
+        "snapshot": {"answers": {"shop_name": "Lotus Tea House"}, "files": {}},
+    }
+    evidence = {
+        "verifier": "llm",
+        "detected_doc_type": "Business Registration Certificate",
+        "legal_name_found": "Lotus Tea House",
+        "reason": "Valid certificate matching declared legal name",
+    }
+
+    async def fake_save_file(application_id, slot, file=None, missing=False):
+        onb.calls.append(("save_file", slot, file, missing))
+        return {
+            "application_id": application_id,
+            "slot": slot,
+            "state": "accepted",
+            "reason_code": "ok",
+            "verifier": "llm",
+            "evidence": evidence,
+        }
+
+    onb.save_file = fake_save_file
+    chat = FakeChat()
+    session = Session(chat, onb, FakeCorpus(), "app", step_with_upload)
+
+    reply = asyncio.run(session.turn("registration.pdf"))
+    assert "Valid certificate matching declared legal name" in reply.text

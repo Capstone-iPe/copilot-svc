@@ -30,18 +30,25 @@ _REASON_EXPLANATION = {
 def file_sentence(slot: str, facts: dict) -> str:
     words = SLOT_WORDS.get(slot, slot)
     state = facts.get("state")
+    evidence = facts.get("evidence") if isinstance(facts.get("evidence"), dict) else {}
+    evidence_reason = evidence.get("reason")
     if state == "accepted":
+        if evidence_reason:
+            return f"The {words} is accepted: {evidence_reason}"
         return f"The {words} is accepted."
     if state == "missing":
         return f"Noted. The {words} stays missing."
-    raw_reason = facts.get("reason") or facts.get("reason_code")
-    explanation = _REASON_EXPLANATION.get(raw_reason)
-    if explanation:
-        because = f": {explanation}"
-    elif raw_reason:
-        because = f" ({raw_reason})"
+    if evidence_reason:
+        because = f": {evidence_reason}"
     else:
-        because = ""
+        raw_reason = facts.get("reason") or facts.get("reason_code")
+        explanation = _REASON_EXPLANATION.get(raw_reason)
+        if explanation:
+            because = f": {explanation}"
+        elif raw_reason:
+            because = f" ({raw_reason})"
+        else:
+            because = ""
     return f"The {words} was not accepted{because}. The same slot stays open. ONB-POL-001 §2."
 
 

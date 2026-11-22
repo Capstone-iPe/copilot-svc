@@ -245,8 +245,9 @@ async def _open_session(request: Request, bearer: str, application_id: str | Non
 
 
 def _update_view(view: dict, rendered: dict, dialogue: DialogueState) -> None:
-    for key in ("shop_name", "status", "review_id", "result", "steps", "prompt"):
-        view[key] = rendered[key]
+    for key in ("shop_name", "status", "review_id", "result", "steps", "prompt", "files"):
+        if key in rendered:
+            view[key] = rendered[key]
     waiting = dialogue.awaiting or ""
     if waiting == "which_field" and view["status"] == "DRAFT":
         view["prompt"] = prompt_view("change")
@@ -452,7 +453,14 @@ async def _run_turn(
                     except DatabaseError as exc:
                         log.warning("Could not journal turn failure telemetry (%s)", type(exc).__name__)
                 raise
-        return {"conversation": record.view, "reply": reply_msg}
+        resp = {"conversation": record.view, "reply": reply_msg}
+        if turn_request["kind"] == "file":
+            slot = turn_request.get("document") or asking_for(session.step)
+            file_info = (session.step.get("snapshot") or {}).get("files", {}).get(slot) or {}
+            evidence = file_info.get("evidence")
+            if evidence:
+                resp["evidence"] = evidence
+        return resp
 
 
 @router.post("/v1/conversations/{conversation_id}/messages")
