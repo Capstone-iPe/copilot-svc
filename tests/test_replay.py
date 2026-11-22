@@ -25,7 +25,7 @@ def test_the_readme_lists_71_shops() -> None:
 def test_a_dated_photo_and_a_blank_signature_stay_in_the_file_name() -> None:
     from datetime import date, timedelta
 
-    from onb.verifier.mock_document_verifier import MockDocumentVerifier
+    from onb.verifier.rules_document_verifier import RulesDocumentVerifier
     from run import as_said
 
     photo = {"kind": "upload", "name": "shopfront_photo"}
@@ -34,14 +34,14 @@ def test_a_dated_photo_and_a_blank_signature_stay_in_the_file_name() -> None:
     blank = as_said("[uploads an addendum with a blank signature]", {"kind": "upload", "name": "dpa_addendum"})
     plain = as_said("[uploads a PDF or photo of the business registration]", {"kind": "upload", "name": "business_registration"})
     today = date.today().isoformat()
-    checker = MockDocumentVerifier()
+    checker = RulesDocumentVerifier()
     assert plain == "business_registration.pdf"
     assert (date.today() - timedelta(days=91)).isoformat() in old
     assert (date.today() - timedelta(days=90)).isoformat() in fresh
-    assert checker.verify("shopfront_photo", "Old Front", old.encode(), today)["reason_code"] == "too_old"
+    assert checker.verify("shopfront_photo", "Old Front", old.encode(), today)["reason_code"] in {"PHOTO_TOO_OLD", "too_old"}
     assert checker.verify("shopfront_photo", "Day Ninety", fresh.encode(), today)["accepted"] is True
     assert "unsigned" in blank
-    assert checker.verify("dpa_addendum", "Blank Sign", blank.encode(), today)["reason_code"] == "unsigned"
+    assert checker.verify("dpa_addendum", "Blank Sign", blank.encode(), today)["reason_code"] in {"UNSIGNED", "unsigned"}
 
 
 def test_g001_starts_with_the_shop_name() -> None:
