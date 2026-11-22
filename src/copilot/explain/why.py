@@ -136,7 +136,11 @@ def _field_passages(field_hits: list[dict]) -> list[dict]:
 def verdict_explanation(verdict: dict, corpus, complete) -> str | None:
     from copilot.say.questions import slot_list
 
+    if verdict.get("outcome") == "RECOMMEND_GO_LIVE":
+        return None
     missing = slot_list([str(item) for item in verdict.get("missing_items") or []])
+    if not missing:
+        return None
     citations = " ".join(str(item) for item in verdict.get("citations") or [])
     query = f"why {missing} {citations}".strip()
     if query == "why":
