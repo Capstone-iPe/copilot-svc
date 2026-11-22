@@ -17,6 +17,7 @@ Pills are minimal (upload / submit only). Suggestion chips stay off.
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -421,7 +422,7 @@ async def _run_turn(
                 capture.model = capture.clean(model, 128, digits=False)
             try:
                 try:
-                    reply = await session.turn(line)
+                    reply = await session.turn(line, payload=turn_request.get("payload"))
                     decision = reply.trace
                 except Exception as exc:
                     log.exception("live ONB turn failed conversation_id=%s", cid)
@@ -496,7 +497,9 @@ async def send_file(
             status_code=415,
             detail={"code": "unsupported_type", "message": "Only PDF, JPG and PNG files are accepted."},
         )
-    # ONB currently stores a file name; bytes are not forwarded yet.
+    raw_bytes = await file.read()
+    b64 = base64.b64encode(raw_bytes).decode("ascii")
+    data_uri = f"data:{file.content_type or 'application/octet-stream'};base64,{b64}"
     key = f"client:{client_message_id}" if client_message_id is not None else None
     return await _run_turn(request, conversation_id, bearer, merchant.id, key,
-                           {"kind": "file", "line": name, "text": "", "document": document})
+                           {"kind": "file", "line": name, "text": "", "document": document, "payload": data_uri})

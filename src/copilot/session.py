@@ -42,7 +42,7 @@ class Session:
         self.step = step
         self.dialogue = DialogueState()
 
-    async def turn(self, line: str) -> Reply:
+    async def turn(self, line: str, payload: str | None = None) -> Reply:
         pending, snapshot, verdict, held = _view(self.step)
         if pending and pending.get("name"):
             self.dialogue.focus = str(pending["name"])
@@ -50,11 +50,13 @@ class Session:
         log.info("taking decision: source=%s acts=%s", source, _brief(acts))
         self.dialogue.note("merchant", line)
         if source not in {"guard", "command"}:
-            reply = await self._acts(line, acts, source, pending, snapshot, verdict)
+            reply = await self._acts(line, acts, source, pending, snapshot, verdict, payload=payload)
             self.dialogue.note("assistant", reply.text)
             return reply
         intent = str(acts[0].get("type") or "") if acts else ""
         action = apply_decision(line, intent, pending, held, slot_states(snapshot))
+        if payload and action.get("action") == "file":
+            action["file"] = payload
         trace = {"stage": stage(pending, held), "intent": intent, "source": source, "action": action["action"]}
         reply, written, step = await self._answer(line, pending, snapshot, verdict, action, trace)
         trace["reply"] = written
@@ -67,7 +69,7 @@ class Session:
         self.dialogue.note("assistant", reply)
         return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
 
-    async def _acts(self, line, acts, source, pending, snapshot, verdict) -> Reply:
+    async def _acts(self, line, acts, source, pending, snapshot, verdict, payload: str | None = None) -> Reply:
         held = verdict is not None
         checked = _ordered(
             check_acts(
@@ -138,6 +140,8 @@ class Session:
                 continue
             if kind in {"upload", "missing", "submit", "review_id"}:
                 action = apply_decision(line, kind, pending, held, slot_states(snapshot))
+                if payload and action.get("action") == "file":
+                    action["file"] = payload
                 reply, _written, step = await self._answer(line, pending, snapshot, verdict, action, {})
                 self.step = step
                 if reply:
