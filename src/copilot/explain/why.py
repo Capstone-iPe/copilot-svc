@@ -134,15 +134,29 @@ def _field_passages(field_hits: list[dict]) -> list[dict]:
 
 
 def verdict_explanation(verdict: dict, corpus, complete) -> str | None:
-    from copilot.say.questions import slot_list
-
     if verdict.get("outcome") == "RECOMMEND_GO_LIVE":
         return None
-    missing = slot_list([str(item) for item in verdict.get("missing_items") or []])
-    if not missing:
+    inv_map = {x.get("item"): x.get("reason") for x in verdict.get("invalid_items") or [] if isinstance(x, dict)}
+    query_parts = []
+    for item in verdict.get("missing_items") or []:
+        slot_name = SLOT_WORDS.get(item, item.replace("_", " "))
+        reason = inv_map.get(item)
+        if reason in {"NAME_MISMATCH", "not_legal_name"}:
+            query_parts.append(f"{slot_name} in the shop's legal name")
+        elif reason in {"PHOTO_TOO_OLD", "too_old"}:
+            query_parts.append(f"{slot_name} from the last 90 days")
+        elif reason in {"UNSIGNED", "unsigned"}:
+            query_parts.append(f"{slot_name} must be signed")
+        else:
+            query_parts.append(slot_name)
+    if not query_parts and verdict.get("business_type_allowed") is False:
+        query_parts.append("business type unlisted")
+    if not query_parts and verdict.get("policy_conflict_noted"):
+        query_parts.append("expected monthly volume 40 lakh")
+    if not query_parts:
         return None
     citations = " ".join(str(item) for item in verdict.get("citations") or [])
-    query = f"why {missing} {citations}".strip()
+    query = f"why {' '.join(query_parts)} {citations}".strip()
     if query == "why":
         return None
     return explain(

@@ -28,14 +28,38 @@ def _refused(subject: str) -> list[str]:
     ]
 
 
+_REASONS = {
+    "NAME_MISMATCH": "not in the shop's legal name",
+    "not_legal_name": "not in the shop's legal name",
+    "PHOTO_TOO_OLD": "older than 90 days",
+    "too_old": "older than 90 days",
+    "WRONG_DOCUMENT": "the file is not the requested document",
+    "wrong_document": "the file is not the requested document",
+    "UNSIGNED": "the addendum is not signed",
+    "unsigned": "the addendum is not signed",
+    "FORMAT_UNSUPPORTED": "unsupported format",
+    "format": "unsupported format",
+    "FILE_UNREADABLE": "file unreadable",
+}
+
+
 def _open(verdict: dict, shop: str, subject: str) -> list[str]:
     review_id = verdict.get("review_id")
     parts = [f"Review {review_id}." if review_id else "A review is open."]
     parts.append(_outcome_line(verdict, shop, subject))
     parts.extend(_type_line(verdict))
     missing = [str(item) for item in verdict.get("missing_items") or []]
+    inv_map = {x.get("item"): x.get("reason") for x in verdict.get("invalid_items") or [] if isinstance(x, dict)}
     if missing:
-        parts.append(f"Missing: {slot_list(missing)}.")
+        missing_parts = []
+        for item in missing:
+            name = SLOT_WORDS.get(item, item.replace("_", " "))
+            reason = inv_map.get(item)
+            if reason and _REASONS.get(reason):
+                missing_parts.append(f"{name} ({_REASONS[reason]})")
+            else:
+                missing_parts.append(name)
+        parts.append(f"Missing: {', '.join(missing_parts)}.")
     assignee = _assignee_line(str(verdict.get("assignee") or ""))
     if assignee:
         parts.append(assignee)
