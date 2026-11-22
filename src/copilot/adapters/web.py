@@ -109,6 +109,20 @@ _CHOICES = {
     "note": ["No note"],
 }
 
+_EDITABLE_FIELDS = [
+    ("Shop name", "Change shop name"),
+    ("City", "Change city"),
+    ("Business type", "Change business type"),
+    ("Monthly volume", "Change monthly volume"),
+    ("Payment methods", "Change payment methods"),
+    ("Payer phones", "Change payer phones"),
+    ("Business registration", "Change business registration"),
+    ("Owner's government ID", "Change owner's government id"),
+    ("Bank proof", "Change bank proof"),
+    ("Shopfront photo", "Change shopfront photo"),
+    ("Note", "Change note"),
+]
+
 WHY_PILL = {"label": "Why is this needed?", "action": "send", "value": "Why is this needed?"}
 
 
@@ -140,14 +154,16 @@ def prompt_view(asking: str | None) -> dict:
                 {"label": "Change an answer", "action": "send", "value": "Change an answer"},
             ],
         }
+    if asking == "change":
+        pills = [{"label": label, "action": "send", "value": val} for label, val in _EDITABLE_FIELDS]
+        return {"field": "change", "kind": "choice", "input": True, "pills": pills, "accept": []}
     if asking is None:
         return {"field": None, "kind": "closed", "input": True, "pills": [], "accept": ACCEPT}
     if asking in _CHOICES:
         pills = [{"label": c, "action": "send", "value": c} for c in _CHOICES[asking]]
-        if asking != "note":
-            pills.append(WHY_PILL)
+        pills.append(WHY_PILL)
         return {"field": asking, "kind": "choice", "input": True, "pills": pills, "accept": []}
-    pills = [WHY_PILL] if asking == "shop_name" else []
+    pills = [WHY_PILL] if asking in {"shop_name", "monthly_volume"} else []
     return {"field": asking, "kind": "text", "input": True, "pills": pills, "accept": []}
 
 

@@ -247,9 +247,12 @@ def _update_view(view: dict, rendered: dict, dialogue: DialogueState) -> None:
     for key in ("shop_name", "status", "review_id", "result", "steps", "prompt"):
         view[key] = rendered[key]
     waiting = dialogue.awaiting or ""
-    kind, _, field = waiting.partition(":")
-    if field and kind in {"confirm", "value_for"} and view["status"] == "DRAFT":
-        view["prompt"] = prompt_view(field)
+    if waiting == "which_field" and view["status"] == "DRAFT":
+        view["prompt"] = prompt_view("change")
+    elif ":" in waiting and view["status"] == "DRAFT":
+        kind, _, field = waiting.partition(":")
+        if field and kind in {"confirm", "value_for"}:
+            view["prompt"] = prompt_view(field)
 
 
 def _append_turn(view: dict, merchant_message: dict, rendered: dict) -> dict:
@@ -317,7 +320,7 @@ async def _load_view(request: Request, record: ConversationHistory, bearer: str)
 
 @router.get("/v1/health")
 async def health() -> dict:
-    return {"ok": True, "agent": "copilot"}
+    return {"ok": True, "agent": "copilot", "smart_suggestions": True, "version": "0.1.1"}
 
 
 @router.post("/v1/conversations", status_code=201)
