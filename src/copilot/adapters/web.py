@@ -48,7 +48,7 @@ class WebAdapter(Adapter):
         return {
             "asking": asking,
             "messages": messages,
-            "prompt": prompt_view(asking),
+            "prompt": prompt_view(asking, snapshot=snapshot),
             "shop_name": str(shop) if shop else None,
             "status": "DRAFT",
             "review_id": None,
@@ -82,7 +82,7 @@ class WebAdapter(Adapter):
         return {
             "asking": asking,
             "assistant_texts": parts,
-            "prompt": prompt_view(asking),
+            "prompt": prompt_view(asking, snapshot=snapshot),
             "shop_name": str(shop) if shop else None,
             "status": status,
             "review_id": (result or {}).get("review_id"),
@@ -126,7 +126,7 @@ _EDITABLE_FIELDS = [
 WHY_PILL = {"label": "Why is this needed?", "action": "send", "value": "Why is this needed?"}
 
 
-def prompt_view(asking: str | None) -> dict:
+def prompt_view(asking: str | None, snapshot: dict | None = None) -> dict:
     if asking in UPLOADS:
         return {
             "field": asking,
@@ -158,7 +158,23 @@ def prompt_view(asking: str | None) -> dict:
         pills = [{"label": label, "action": "send", "value": val} for label, val in _EDITABLE_FIELDS]
         return {"field": "change", "kind": "choice", "input": True, "pills": pills, "accept": []}
     if asking is None:
-        return {"field": None, "kind": "closed", "input": True, "pills": [], "accept": ACCEPT}
+        pills = []
+        if snapshot:
+            files = snapshot.get("files") or {}
+            verdict = snapshot.get("verdict") or {}
+            missing_items = list(verdict.get("missing_items") or [])
+            for slot, facts in files.items():
+                if isinstance(facts, dict) and facts.get("state") in {"missing", "rejected"} and slot in UPLOADS:
+                    if slot not in missing_items:
+                        missing_items.append(slot)
+            for slot in missing_items:
+                if slot in UPLOADS:
+                    pills.append({
+                        "label": f"Upload {ITEM.get(slot, slot)}",
+                        "action": "upload",
+                        "document": slot,
+                    })
+        return {"field": None, "kind": "closed", "input": True, "pills": pills, "accept": ACCEPT}
     if asking in _CHOICES:
         pills = [{"label": c, "action": "send", "value": c} for c in _CHOICES[asking]]
         pills.append(WHY_PILL)
