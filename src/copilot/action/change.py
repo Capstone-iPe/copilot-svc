@@ -23,7 +23,10 @@ def upload_slot(line: str, pending: dict | None, slots: dict[str, list[str]]) ->
         return candidates[0]
     padded = f" {line.lower()} "
     hits = [slot for slot in candidates if any(hint in padded for hint in SLOT_HINTS.get(slot, ()))]
-    return hits[0] if len(hits) == 1 else None
+    if len(hits) == 1:
+        return hits[0]
+    all_hits = [slot for slot in SLOT_HINTS if any(hint in padded for hint in SLOT_HINTS.get(slot, ()))]
+    return all_hits[0] if len(all_hits) == 1 else None
 
 
 def resolve_change(line: str) -> dict | None:

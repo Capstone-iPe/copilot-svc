@@ -252,7 +252,7 @@ def _update_view(view: dict, rendered: dict, dialogue: DialogueState) -> None:
         view["prompt"] = prompt_view("change")
     elif ":" in waiting and view["status"] == "DRAFT":
         kind, _, field = waiting.partition(":")
-        if field and kind in {"confirm", "value_for"}:
+        if field and kind in {"confirm", "value_for", "upload_for"}:
             view["prompt"] = prompt_view(field)
 
 

@@ -31,7 +31,7 @@ SLOT_WORDS = {
     "dpa_addendum": "signed data-processing addendum",
 }
 SLOT_HINTS = {
-    "business_registration": ("registration",),
+    "business_registration": ("registration", "reg", "certificate", "gst", "gstin"),
     "owner_id": ("owner", "government id", "identity", " id "),
     "bank_proof": ("bank", "passbook", "cheque"),
     "shopfront_photo": ("shopfront", "shop front", "photo"),

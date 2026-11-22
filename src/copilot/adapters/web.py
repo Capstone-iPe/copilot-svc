@@ -74,7 +74,7 @@ class WebAdapter(Adapter):
             parts.append(text.strip())
         if next_prompt.strip() and next_prompt.strip() not in parts:
             parts.append(next_prompt.strip())
-        asking = asking_for(reply.step)
+        asking = reply.trace.get("asking") or asking_for(reply.step)
         result = result_for(reply.step)
         status = result["outcome"] if result else "DRAFT"
         snapshot = reply.step.get("snapshot") if isinstance(reply.step.get("snapshot"), dict) else {}

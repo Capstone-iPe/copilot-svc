@@ -49,12 +49,25 @@ class Session:
         acts, source = read_acts(line, pending, held, snapshot, self.chat.complete, self.dialogue)
         log.info("taking decision: source=%s acts=%s", source, _brief(acts))
         self.dialogue.note("merchant", line)
-        if source not in {"guard", "command"}:
+        if source not in {"guard", "command"} or any(str(a.get("type")) == "change_doc" for a in acts):
             reply = await self._acts(line, acts, source, pending, snapshot, verdict, payload=payload)
             self.dialogue.note("assistant", reply.text)
             return reply
         intent = str(acts[0].get("type") or "") if acts else ""
         action = apply_decision(line, intent, pending, held, slot_states(snapshot))
+        if (
+            intent == "upload"
+            and action.get("action") == "which"
+            and self.dialogue.awaiting
+            and self.dialogue.awaiting.startswith("upload_for:")
+        ):
+            from copilot.action.change import file_in
+
+            action = {
+                "action": "file",
+                "slot": self.dialogue.awaiting.split(":", 1)[1],
+                "file": file_in(line) or line,
+            }
         if payload and action.get("action") == "file":
             action["file"] = payload
         trace = {"stage": stage(pending, held), "intent": intent, "source": source, "action": action["action"]}
@@ -66,6 +79,8 @@ class Session:
             self.dialogue.last_saved = str(action.get("field") or "") or None
             self.dialogue.focus = self.dialogue.last_saved
             self.dialogue.remember(self.dialogue.last_saved or "", str(action.get("value") or ""))
+        if action.get("action") in {"file", "save", "missing", "submit", "review"}:
+            self.dialogue.awaiting = None
         self.dialogue.note("assistant", reply)
         return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
 
@@ -140,6 +155,10 @@ class Session:
                 continue
             if kind in {"upload", "missing", "submit", "review_id"}:
                 action = apply_decision(line, kind, pending, held, slot_states(snapshot))
+                if kind == "upload" and action.get("action") == "which" and self.dialogue.awaiting and self.dialogue.awaiting.startswith("upload_for:"):
+                    target_slot = self.dialogue.awaiting.split(":", 1)[1]
+                    from copilot.action.change import file_in
+                    action = {"action": "file", "slot": target_slot, "file": file_in(line) or line}
                 if payload and action.get("action") == "file":
                     action["file"] = payload
                 reply, _written, step = await self._answer(line, pending, snapshot, verdict, action, {})
@@ -147,6 +166,7 @@ class Session:
                 if reply:
                     texts.append(reply)
                 if action.get("action") in {"save", "file", "missing", "submit", "review"}:
+                    self.dialogue.awaiting = None
                     saved = True
                     pending, snapshot, verdict, held = _view(self.step)
                 continue
@@ -171,6 +191,9 @@ class Session:
             "action": "save" if saved else action,
             "reply": "template",
         }
+        for act in checked:
+            if str(act.get("type")) == "change_doc":
+                trace["asking"] = act.get("slot")
         log.debug("trace %s", json.dumps(trace))
         return Reply(
             text=" ".join(part for part in texts if part).strip(),
@@ -242,6 +265,18 @@ class Session:
             if re.search(r"\b(?:ok|okay|sure|great|yes|haan)\b", low):
                 return "Great."
             return ""
+        if kind == "change_doc":
+            from copilot.say.questions import WEB_UPLOADS
+            from copilot.words import SLOT_WORDS
+
+            slot = str((act or {}).get("slot") or "business_registration")
+            self.dialogue.awaiting = f"upload_for:{slot}"
+            self.dialogue.focus = slot
+            prompt = WEB_UPLOADS.get(slot)
+            if prompt:
+                return f"Sure. {prompt}"
+            words = SLOT_WORDS.get(slot, slot)
+            return f"Sure, tap Upload to add the {words}. PDF, JPG, or PNG."
         if kind == "pause":
             return "Sure, take your time. Everything so far is saved. Just come back and we'll continue from here."
         if kind == "undo":
@@ -321,7 +356,7 @@ class Session:
                 break
         return results
 
-_ASIDE = {"chitchat", "pause", "recap", "undo", "change_request"}
+_ASIDE = {"chitchat", "pause", "recap", "undo", "change_request", "change_doc"}
 _KEEP_WAIT = {"why", "ask", "chitchat", "recap", "pause"}
 _ACT_SAVE = {"answer", "correct"}
 
@@ -358,6 +393,13 @@ def _prompt(session: Session) -> str:
         question = QUESTIONS.get(field)
         if question:
             return question
+    if waiting.startswith("upload_for:"):
+        from copilot.say.questions import WEB_UPLOADS
+
+        slot = waiting.split(":", 1)[1]
+        prompt = WEB_UPLOADS.get(slot)
+        if prompt:
+            return prompt
     return prompt_for(session.step)
 
 

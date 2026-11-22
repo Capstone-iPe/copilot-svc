@@ -28,6 +28,15 @@ _QUESTION = re.compile(r"\?|\b(?:why|what|how|when|where|who|which)\b", re.I)
 _CHATTER = re.compile(r"\b(?:hi|hello|hey|thanks|thank|ok|okay|hmm|wait|later)\b", re.I)
 
 
+_DOC_CHANGE_PATTERNS = {
+    "business_registration": re.compile(r"\b(?:(?:change|update|replace)\s+(?:the\s+)?)?(?:business\s+registration|registration\s+certificate)\b", re.I),
+    "bank_proof": re.compile(r"\b(?:(?:change|update|replace)\s+(?:the\s+)?)?bank\s*(?:proof|statement|letter|passbook)\b", re.I),
+    "owner_id": re.compile(r"\b(?:(?:change|update|replace)\s+(?:the\s+)?)?(?:owner'?s?\s+(?:government\s+)?id|government\s+id)\b", re.I),
+    "shopfront_photo": re.compile(r"\b(?:(?:change|update|replace)\s+(?:the\s+)?)?(?:shopfront|front\s+photo)\b", re.I),
+    "dpa_addendum": re.compile(r"\b(?:(?:change|update|replace)\s+(?:the\s+)?)?(?:data\s+processing\s+)?(?:addendum|dpa)\b", re.I),
+}
+
+
 def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) -> tuple[list[dict], str]:
     """Guard, an exact command, otherwise one model read. Free text is not saved unread."""
     guarded = guard_intent(line, pending)
@@ -38,6 +47,15 @@ def read_acts(line, pending, held, snapshot, complete, dialogue: DialogueState) 
     if command:
         log.info("model not called: command %s", command)
         return [{"type": command}], "command"
+    is_change = bool(
+        re.search(r"\b(?:change|update|replace)\b", line, re.I)
+        or (dialogue.awaiting in {"which_field", "change"})
+    )
+    if is_change:
+        for slot, rx in _DOC_CHANGE_PATTERNS.items():
+            if rx.search(line):
+                log.info("model not called: doc change for %s", slot)
+                return [{"type": "change_doc", "slot": slot}], "code"
     raw = _model_acts(line, pending, held, snapshot, complete, dialogue)
     parsed = _about_this_line(line, raw)
     if _RECAP.search(line):

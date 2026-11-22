@@ -24,6 +24,7 @@ _SPEAK = {
     "recap",
     "undo",
     "change_request",
+    "change_doc",
     "confirm",
     "confirm_yes",
     "confirm_no",

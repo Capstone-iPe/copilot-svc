@@ -913,3 +913,47 @@ def test_a_named_file_from_the_model_is_stored() -> None:
 
     assert ("save_file", "bank_proof", "bank-proof.pdf", False) in onb.calls
     assert "accepted" in reply.text.lower()
+
+
+def test_change_bank_proof_and_business_registration() -> None:
+    onb = Shop()
+    step = {
+        "application_id": "app_1",
+        "pending": None,
+        "snapshot": {"answers": {"shop_name": "Test Shop"}, "files": {"bank_proof": {"state": "accepted"}, "business_registration": {"state": "accepted"}}},
+    }
+
+    async def next_step(application_id=None):
+        return step
+
+    async def save_file(application_id, slot, file=None, missing=False):
+        onb.calls.append(("save_file", slot, file, missing))
+        return {"state": "accepted"}
+
+    onb.next_step = next_step
+    onb.save_file = save_file
+
+    session, onb = _session(onb, step, Scripted("{}"))
+
+    # Test "Change bank proof"
+    reply = asyncio.run(session.turn("Change bank proof"))
+    assert session.dialogue.awaiting == "upload_for:bank_proof"
+    assert reply.trace.get("asking") == "bank_proof"
+    assert "bank proof" in reply.text.lower()
+    assert "payment" not in reply.text.lower()
+
+    # Now upload the replacement file
+    reply2 = asyncio.run(session.turn("bank_proof_new.pdf"))
+    assert ("save_file", "bank_proof", "bank_proof_new.pdf", False) in onb.calls
+
+    # Test "Change business registration"
+    reply3 = asyncio.run(session.turn("Change business registration"))
+    assert session.dialogue.awaiting == "upload_for:business_registration"
+    assert reply3.trace.get("asking") == "business_registration"
+    assert "business registration" in reply3.text.lower()
+    assert "business type" not in reply3.text.lower()
+
+    # Upload replacement business registration
+    reply4 = asyncio.run(session.turn("business_reg_new.pdf"))
+    assert ("save_file", "business_registration", "business_reg_new.pdf", False) in onb.calls
+
