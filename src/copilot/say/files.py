@@ -7,6 +7,26 @@ from copilot.say.verdict import verdict_reply
 from copilot.words import SLOT_WORDS
 
 
+_REASON_EXPLANATION = {
+    "FORMAT_UNSUPPORTED": "that file format is not supported; please upload a PDF, JPG, or PNG",
+    "format": "that file format is not supported; please upload a PDF, JPG, or PNG",
+    "FILE_UNREADABLE": "that file could not be read or is corrupted/password-protected",
+    "unreadable": "that file could not be read or is corrupted/password-protected",
+    "PHOTO_TOO_OLD": "that photo is older than 90 days on the day of submit",
+    "too_old": "that photo is older than 90 days on the day of submit",
+    "WRONG_DOCUMENT": "that document does not match what is required for this slot",
+    "wrong_document": "that document does not match what is required for this slot",
+    "NAME_MISMATCH": "the name on the document does not match the shop's legal name",
+    "not_legal_name": "the name on the document does not match the shop's legal name",
+    "NOT_SHOPFRONT": "that photo does not show the shopfront",
+    "not_shopfront": "that photo does not show the shopfront",
+    "UNSIGNED": "the addendum must be signed",
+    "unsigned": "the addendum must be signed",
+    "duplicate_file": "the same file cannot be used for two different slots",
+    "rejected": "that document does not meet the requirements",
+}
+
+
 def file_sentence(slot: str, facts: dict) -> str:
     words = SLOT_WORDS.get(slot, slot)
     state = facts.get("state")
@@ -14,8 +34,14 @@ def file_sentence(slot: str, facts: dict) -> str:
         return f"The {words} is accepted."
     if state == "missing":
         return f"Noted. The {words} stays missing."
-    reason = facts.get("reason") or facts.get("reason_code")
-    because = f" ({reason})" if reason else ""
+    raw_reason = facts.get("reason") or facts.get("reason_code")
+    explanation = _REASON_EXPLANATION.get(raw_reason)
+    if explanation:
+        because = f": {explanation}"
+    elif raw_reason:
+        because = f" ({raw_reason})"
+    else:
+        because = ""
     return f"The {words} was not accepted{because}. The same slot stays open. ONB-POL-001 §2."
 
 

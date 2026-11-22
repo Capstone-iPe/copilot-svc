@@ -82,3 +82,36 @@ def test_web_adapter_carries_asking_and_a_result_card() -> None:
     assert out["card"]["outcome"] == "IN_REVIEW"
     assert out["result"]["assignee"] == "MERCHANT_RISK_LEAD"
 
+
+def test_web_adapter_smart_suggestion_pills() -> None:
+    from copilot.adapters.web import prompt_view
+    b_pills = prompt_view("business_type")["pills"]
+    labels = [p["label"] for p in b_pills]
+    assert "Restaurant" in labels
+    assert "Grocery" in labels
+    assert "Retail" in labels
+    assert "Why is this needed?" in labels
+
+    p_pills = prompt_view("payment_methods")["pills"]
+    p_labels = [p["label"] for p in p_pills]
+    assert "UPI" in p_labels
+    assert "Cards" in p_labels
+    assert "UPI and cards" in p_labels
+
+    ph_pills = prompt_view("stores_payer_phones")["pills"]
+    ph_labels = [p["label"] for p in ph_pills]
+    assert "Yes" in ph_labels
+    assert "No" in ph_labels
+
+    u_pills = prompt_view("business_registration")["pills"]
+    u_labels = [p["label"] for p in u_pills]
+    assert "Upload business registration" in u_labels
+    assert "I don't have this" in u_labels
+    assert "Why is this needed?" in u_labels
+
+    s_pills = prompt_view("submit")["pills"]
+    s_labels = [p["label"] for p in s_pills]
+    assert "Submit" in s_labels
+    assert "Change an answer" in s_labels
+
+

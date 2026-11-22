@@ -102,6 +102,16 @@ def asking_for(step: dict) -> str | None:
     return "submit"
 
 
+_CHOICES = {
+    "business_type": ["Restaurant", "Grocery", "Retail"],
+    "payment_methods": ["UPI", "Cards", "UPI and cards"],
+    "stores_payer_phones": ["Yes", "No"],
+    "note": ["No note"],
+}
+
+WHY_PILL = {"label": "Why is this needed?", "action": "send", "value": "Why is this needed?"}
+
+
 def prompt_view(asking: str | None) -> dict:
     if asking in UPLOADS:
         return {
@@ -114,7 +124,9 @@ def prompt_view(asking: str | None) -> dict:
                     "label": f"Upload {ITEM.get(asking, asking)}",
                     "action": "upload",
                     "document": asking,
-                }
+                },
+                {"label": "I don't have this", "action": "send", "value": "I don't have this file."},
+                WHY_PILL,
             ],
         }
     if asking == "submit":
@@ -123,11 +135,20 @@ def prompt_view(asking: str | None) -> dict:
             "kind": "summary",
             "input": True,
             "accept": [],
-            "pills": [{"label": "Submit", "action": "submit"}],
+            "pills": [
+                {"label": "Submit", "action": "submit"},
+                {"label": "Change an answer", "action": "send", "value": "Change an answer"},
+            ],
         }
     if asking is None:
         return {"field": None, "kind": "closed", "input": True, "pills": [], "accept": ACCEPT}
-    return {"field": asking, "kind": "text", "input": True, "pills": [], "accept": []}
+    if asking in _CHOICES:
+        pills = [{"label": c, "action": "send", "value": c} for c in _CHOICES[asking]]
+        if asking != "note":
+            pills.append(WHY_PILL)
+        return {"field": asking, "kind": "choice", "input": True, "pills": pills, "accept": []}
+    pills = [WHY_PILL] if asking == "shop_name" else []
+    return {"field": asking, "kind": "text", "input": True, "pills": pills, "accept": []}
 
 
 def steps_for(asking: str | None, status: str) -> dict:

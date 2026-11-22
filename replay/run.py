@@ -16,7 +16,9 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 SRC = HERE.parent / "src"
-EVAL = HERE.parents[2] / "iPe" / "eval"
+EVAL = HERE.parents[1] / "analysis" / "eval"
+if not EVAL.is_dir():
+    EVAL = HERE.parents[2] / "iPe" / "eval"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 if str(HERE) not in sys.path:

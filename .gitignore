@@ -4,3 +4,4 @@ index/
 .idea/
 .env
 *.crt
+*.egg-info/

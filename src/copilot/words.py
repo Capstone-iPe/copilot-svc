@@ -109,7 +109,7 @@ READBACK = re.compile(
 SENSITIVE = re.compile(r"\b(?:account|aadhaar|pan|phone|mobile|ifsc|passport)\b", re.I)
 DIGITS = re.compile(r"\d(?:[\s-]?\d){3,}")
 VOLUME = re.compile(
-    r"(?:₹|rs\.?\s*|inr\s*)?\d[\d,]*(?:\.\d+)?\s*(?:lakhs?|lacs?|crores?)?",
+    r"(?:about\s+|around\s+|approx\.?\s+)?(?:₹|rs\.?\s*|inr\s*)?\d[\d,]*(?:\.\d+)?\s*(?:lakhs?|lacs?|crores?)?",
     re.I,
 )
 NEW_VALUE = re.compile(r"\b(?:to|is|as)\s+[\"']?(.+?)[\"']?\s*[.!]?$", re.I)

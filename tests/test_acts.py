@@ -525,6 +525,14 @@ def test_a_negated_dhaba_is_not_stored() -> None:
     assert "kind of shop" in reply.text.lower()
 
 
+def test_direct_yes_and_no_for_payer_phones() -> None:
+    onb = Shop()
+    onb.order = ["stores_payer_phones"]
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(""))
+    reply = asyncio.run(session.turn("yes"))
+    assert onb.answers.get("stores_payer_phones") in {"Yes", "yes"}
+
+
 def test_store_them_is_not_a_yes() -> None:
     onb = Shop()
     onb.order = ["stores_payer_phones"]
