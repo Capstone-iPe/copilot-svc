@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import webbrowser
 
 from copilot.onb.onb_tools import OnbTools
@@ -16,7 +17,7 @@ log = logging.getLogger("copilot")
 # Three short tries stay inside the website's single-request wait.
 _DELAYS = (0, 5, 8)
 _WAKE = {502, 503, 504}
-_HTTP_TIMEOUT = 10
+_HTTP_TIMEOUT = int(os.environ.get("ONB_HTTP_TIMEOUT", "45"))
 
 
 def tool_payload(result: object) -> dict:
