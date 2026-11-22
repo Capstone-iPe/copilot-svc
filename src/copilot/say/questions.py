@@ -167,6 +167,17 @@ def _ready(snapshot: dict, slots: dict) -> str:
             rows.append(f"- Documents: {accepted} uploaded, {len(missing)} missing ({slot_list(missing)})")
         else:
             rows.append(f"- Documents: {accepted} uploaded")
+        for slot, file_info in files.items():
+            slot_name = SLOT_WORDS.get(slot, slot.replace("_", " "))
+            st = file_info.get("state") if isinstance(file_info, dict) else ""
+            if st == "accepted":
+                rows.append(f"  • {slot_name}: Uploaded")
+            elif st == "missing":
+                rows.append(f"  • {slot_name}: Missing")
+            elif st:
+                reason = file_info.get("reason_code")
+                reason_str = f" ({reason})" if reason and reason != "ok" else ""
+                rows.append(f"  • {slot_name}: {st.capitalize()}{reason_str}")
     shop = stored.get("shop_name")
     head = f"Here's what I have for {shop}:" if shop else "Here's what I have:"
     listed = "\n".join(rows)
