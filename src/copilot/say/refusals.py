@@ -19,6 +19,9 @@ _LINES = {
         "or another clear type (cafe, kirana, salon, gym)."
     ),
     "bad_payment_methods": "Please name the methods, such as UPI, cards, cash, or wallet.",
+    "refused_type": (
+        "Hawala, hundi, forex, crypto, and gambling are refused. No review is opened."
+    ),
 }
 
 

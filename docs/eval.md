@@ -114,10 +114,35 @@ One merchant line per row. This is not the 71-shop gold set. A row is played whe
 
 | Set | Rows | Played | Wrong field | Small talk saved | Field | Value | Act | Back on question |
 |---|---|---|---|---|---|---|---|---|
-| Turns | 345 | 289 | 60 | 0 | 79% | 74% | 66% | 100% |
+| Turns | 345 | 345 | 40 | 0 | 88% | 77% | 73% | 100% |
 | Holdout | 40 | 39 | 10 | 0 | 74% | 72% | 59% | 100% |
 
-Command: `PYTHONPATH=src:replay .venv/bin/python replay/natural_run.py`. The plan's 95% gates are not met. The holdout is run once and is not used to change the reader.
+All 345 rows play. Percents are of all 345. The holdout row is the earlier run and was not repeated. Each wrong-field row is in [results/natural-wrong-field.jsonl](results/natural-wrong-field.jsonl).
+
+A refused business word is not stored. Hawala, hundi, forex, crypto, and gambling (`t305`–`t309`) save nothing. A history line is given the earlier answers from that thread, so "the earlier one" can be put back. A line that names the pending document stores that file, and "I don't have it" marks the slot missing. "I already attached it", with no document named, still does not count as a file. A shop name that only contains a type word stays the shop name: `t019` saves Rosewood Salon, and `t194` saves Stone Mill Grocery. "Don't put cards" (`t277`) saves nothing.
+
+An upload and a missing file count as saves. Back on question is 100%. The act figure rose with that scoring change: those document rows are no longer treated as a turn that should have stayed put.
+
+| Cause | Rows | What the row shows |
+|---|---|---|
+| regex | 18 | A helper or the closed-list check changed the model's act |
+| model | 16 | The model act is not a save of the labeled field, and no helper rewrote it into one |
+| label | 6 | The reader kept the labeled field and the save did not land |
+
+By category:
+
+| Category | model | regex | label |
+|---|---|---|---|
+| plain | 1 | 9 | 3 |
+| two-acts | 5 | 0 | 0 |
+| typo | 0 | 7 | 0 |
+| correction-named | 3 | 0 | 0 |
+| correction-unnamed | 3 | 0 | 2 |
+| hinglish | 2 | 1 | 0 |
+| history | 2 | 0 | 0 |
+| negation | 0 | 1 | 1 |
+
+What remains is mostly on purpose. Typos such as `resturant` are not guessed. A phones line that is not yes or no is not stored. `120K` and "about 9 lakh" are not turned into a figure. "About 5 lakh" (`t107`) stored `5 lakh` on this run, so it is a value miss rather than a wrong field. Two history rows still miss because the earlier volume is one of those phrases (`t066`, `t109`). The students-welcome note is still named while the shopfront photo is pending (`t190`).
 
 ## Responsible-AI baseline (already in tests)
 

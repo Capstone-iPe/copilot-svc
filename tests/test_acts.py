@@ -889,6 +889,283 @@ def test_the_phones_question_changes_after_two_misses() -> None:
     assert reply.prompt == "Just type yes or no."
 
 
+def test_a_change_request_that_names_the_new_type_is_stored() -> None:
+    onb = Shop()
+    onb.index = 3
+    onb.order = ["shop_name", "city", "business_type", "monthly_volume"]
+    onb.answers = {"shop_name": "Old Well Dhaba", "city": "Jabalpur", "business_type": "restaurant"}
+    note = (
+        '{"acts":[{"type":"change_request","field":"business_type","value_span":"gym"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("not a dhaba, gym"))
+
+    assert onb.answers["business_type"] == "gym"
+    assert "monthly_volume" not in onb.answers
+    assert "gym" in reply.text
+
+
+def test_a_change_request_that_names_the_city_is_stored() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Quiet Page Books", "city": "Patna"}
+    note = '{"acts":[{"type":"change_request","field":"city","value_span":"Gaya"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("sorry I typed the wrong place, Gaya"))
+
+    assert onb.answers["city"] == "Gaya"
+    assert "business_type" not in onb.answers
+    assert "Gaya" in reply.text
+
+
+def test_exclude_wallet_keeps_upi() -> None:
+    onb = Shop()
+    onb.order = ["payment_methods", "stores_payer_phones"]
+    onb.index = 1
+    onb.answers = {"payment_methods": "wallet, UPI"}
+    note = (
+        '{"acts":[{"type":"change_request","field":"payment_methods",'
+        '"value_span":"exclude wallet, keep upi"}],"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("exclude wallet, keep upi"))
+
+    assert onb.answers["payment_methods"] == "UPI"
+
+
+def test_a_phones_change_without_yes_or_no_is_not_stored() -> None:
+    onb = Shop()
+    onb.order = ["payment_methods", "stores_payer_phones"]
+    onb.answers = {"payment_methods": "UPI"}
+    onb.index = 1
+    note = (
+        '{"acts":[{"type":"change_request","field":"stores_payer_phones",'
+        '"value_span":"we don\'t keep phones"}],"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("we don't keep phones"))
+
+    assert "stores_payer_phones" not in onb.answers
+    assert "payer phones" in reply.text.lower()
+
+
+def test_a_vague_change_is_not_stored_as_the_shop_name() -> None:
+    onb = Shop()
+    onb.order = ["shop_name", "city", "business_type", "monthly_volume"]
+    onb.index = 3
+    onb.answers = {"shop_name": "Button Jar Tailors", "city": "Vadodara", "business_type": "retail"}
+    note = (
+        '{"acts":[{"type":"change_request","field":"shop_name",'
+        '"value_span":"let me alter a previous bit"}],"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("let me alter a previous bit"))
+
+    assert onb.answers["shop_name"] == "Button Jar Tailors"
+    assert "shop name" in reply.text.lower()
+
+
+def test_a_note_change_request_replaces_the_stored_note() -> None:
+    onb = Shop()
+    onb.order = ["note"]
+    onb.index = 1
+    onb.answers = {"note": "none"}
+    note = (
+        '{"acts":[{"type":"change_request","field":"note","value_span":"festive hours only"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("update the note to festive hours only"))
+
+    assert onb.answers["note"] == "festive hours only"
+
+
+def test_hawala_is_refused_and_not_stored() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Night Desk Transfers", "city": "Pune"}
+    note = (
+        '{"acts":[{"type":"answer","field":"business_type","value_span":"hawala transfers"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    reply = asyncio.run(session.turn("we run hawala transfers"))
+
+    assert "business_type" not in onb.answers
+    assert "refused" in reply.text.lower()
+    assert reply.step["pending"]["name"] == "business_type"
+
+
+def test_a_gym_is_still_stored() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Iron Yard Gym", "city": "Nashik"}
+    note = '{"acts":[{"type":"answer","field":"business_type","value_span":"gym"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("gym"))
+
+    assert onb.answers["business_type"] == "gym"
+
+
+def test_naming_the_pending_document_stores_it() -> None:
+    onb = Shop()
+    step = {
+        "application_id": "app_1",
+        "pending": {"kind": "upload", "name": "bank_proof"},
+        "snapshot": {"answers": {}, "files": {"bank_proof": {"state": "pending"}}},
+    }
+
+    async def next_step(application_id=None):
+        return step
+
+    async def save_file(application_id, slot, file=None, missing=False):
+        onb.calls.append(("save_file", slot, file, missing))
+        return {"state": "accepted"}
+
+    onb.next_step = next_step
+    onb.save_file = save_file
+    note = '{"acts":[{"type":"again"}],"confidence":"high"}'
+    session, _onb = _session(onb, step, Scripted(note))
+
+    asyncio.run(session.turn("sending the bank proof"))
+
+    assert ("save_file", "bank_proof", "bank_proof.pdf", False) in onb.calls
+
+
+def test_not_having_the_pending_document_marks_it_missing() -> None:
+    onb = Shop()
+    step = {
+        "application_id": "app_1",
+        "pending": {"kind": "upload", "name": "business_registration"},
+        "snapshot": {"answers": {}, "files": {"business_registration": {"state": "pending"}}},
+    }
+
+    async def next_step(application_id=None):
+        return step
+
+    async def save_file(application_id, slot, file=None, missing=False):
+        onb.calls.append(("save_file", slot, file, missing))
+        return {"state": "missing"}
+
+    onb.next_step = next_step
+    onb.save_file = save_file
+    note = '{"acts":[{"type":"other_shop"}],"confidence":"high"}'
+    session, _onb = _session(onb, step, Scripted(note))
+
+    asyncio.run(session.turn("I don't have the business registration with me"))
+
+    assert ("save_file", "business_registration", None, True) in onb.calls
+
+
+def test_dont_put_cards_does_not_store_cards() -> None:
+    onb = Shop()
+    onb.order = ["shop_name", "city", "business_type", "monthly_volume", "payment_methods"]
+    onb.index = 4
+    onb.answers = {
+        "shop_name": "Goldfinch Cafe",
+        "city": "Mysuru",
+        "business_type": "restaurant",
+        "monthly_volume": "11 lakh",
+    }
+    note = (
+        '{"acts":[{"type":"change_request","field":"payment_methods","value_span":"don\'t put cards"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("don't put cards"))
+
+    assert "payment_methods" not in onb.answers
+
+
+def test_cards_and_upi_are_not_stored_as_the_phones_answer() -> None:
+    onb = Shop()
+    onb.order = ["payment_methods", "stores_payer_phones"]
+    onb.index = 1
+    onb.answers = {"payment_methods": "UPI, cards"}
+    note = '{"acts":[{"type":"confirm_yes","field":"stores_payer_phones"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("no cards, only UPI"))
+
+    assert "stores_payer_phones" not in onb.answers
+    assert onb.answers["payment_methods"] == "UPI"
+
+
+def test_the_earlier_city_is_restored_when_it_was_remembered() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Moonjar Sweets", "city": "Prayagraj"}
+    note = '{"acts":[{"type":"answer","field":"business_type","value_span":"the earlier one"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+    session.dialogue.remember("city", "Agra")
+    session.dialogue.remember("city", "Prayagraj")
+
+    reply = asyncio.run(session.turn("the earlier one"))
+
+    assert onb.answers["city"] == "Agra"
+    assert "business_type" not in onb.answers
+    assert "Agra" in reply.text
+
+
+def test_a_shop_name_that_contains_salon_stays_the_shop_name() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Rosewod Salon", "city": "Kochi"}
+    note = '{"acts":[{"type":"correct","field":"shop_name","value_span":"Rosewood Salon"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("it's Rosewood Salon, missed a letter"))
+
+    assert onb.answers["shop_name"] == "Rosewood Salon"
+    assert "business_type" not in onb.answers
+
+
+def test_a_shop_name_that_contains_grocery_stays_the_shop_name() -> None:
+    onb = Shop()
+    onb.index = 2
+    onb.answers = {"shop_name": "Stone Mill", "city": "Raipur"}
+    note = (
+        '{"acts":[{"type":"correct","field":"shop_name","value_span":"Stone Mill Grocery"}],'
+        '"confidence":"high"}'
+    )
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("it's Stone Mill Grocery, not Stone Mill"))
+
+    assert onb.answers["shop_name"] == "Stone Mill Grocery"
+    assert "business_type" not in onb.answers
+
+
+def test_a_short_type_word_still_answers_the_business_type() -> None:
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"dhaba"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("it's a dhaba"))
+
+    assert onb.answers == {"business_type": "restaurant"}
+
+    onb = Shop()
+    onb.order = ["business_type"]
+    note = '{"acts":[{"type":"answer","field":"shop_name","value_span":"a salon"}],"confidence":"high"}'
+    session, onb = _session(onb, asyncio.run(onb.next_step()), Scripted(note))
+
+    asyncio.run(session.turn("a salon"))
+
+    assert onb.answers == {"business_type": "salon"}
+
+
 def test_a_named_file_from_the_model_is_stored() -> None:
     onb = Shop()
     step = {

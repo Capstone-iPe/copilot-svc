@@ -77,6 +77,23 @@ _BUSINESS_CANON = {
     "kirana": "grocery",
     "retail": "retail",
 }
+# The same refused words ONB uses. A refused word is not stored.
+_REFUSED = frozenset({
+    "hawala",
+    "hundi",
+    "forex",
+    "money service",
+    "money transfer",
+    "remittance",
+    "crypto",
+    "bitcoin",
+    "nft",
+    "gambling",
+    "betting",
+    "satta",
+    "matka",
+    "casino",
+})
 _PAYMENT_CANON = {
     "upi": "UPI",
     "card": "cards",
@@ -93,7 +110,8 @@ _PAYMENT_CANON = {
     "qr": "bharatqr",
 }
 _NEGATED = re.compile(
-    r"\b(?:not|no|isn'?t|aren'?t|wasn'?t|weren'?t|nahi|nahin)\b(?:\s+(?:a|an|the|bhai))?\s*$",
+    r"\b(?:not|no|isn'?t|aren'?t|wasn'?t|weren'?t|nahi|nahin|exclude|drop|without|don'?t|do\s+not)\b"
+    r"(?:\s+(?:a|an|the|bhai|put))?\s*$",
     re.I,
 )
 
@@ -109,6 +127,11 @@ def heard(field: str, text: str) -> str | None:
         words = _positive(text, _PAYMENT_RE)
         return ", ".join(words) if words else None
     return None
+
+
+def refused_business(text: str) -> bool:
+    """True when a refused business word is actually said, not negated."""
+    return any(phrase in _REFUSED for phrase in _positive(text, _BUSINESS_RE))
 
 
 def list_value(field: str, text: str) -> str | None:

@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import re
 
-from copilot.action.closed import CLOSED_FIELDS, closed_error, list_value, normalize_closed
-from copilot.words import EDIT_CUE, FIELD_OF, FIELD_WORD
+from copilot.action.closed import (
+    CLOSED_FIELDS,
+    closed_error,
+    heard,
+    list_value,
+    normalize_closed,
+    refused_business,
+)
+from copilot.words import EDIT_CUE, FIELD_OF, FIELD_WORD, SLOT_HINTS
 
 FIELDS = {
     "shop_name",
@@ -66,6 +73,10 @@ _NAME_SENTENCE = re.compile(
     r"\b(?:we|we're|we are|based|sorry|it's|it is|i'm|i am|the shop|my)\b",
     re.I,
 )
+_TYPE_FILLER = re.compile(
+    r"\b(?:it is|it's|we are|we're|i am|i'm|a|an|the|we|i|is|are|my|just|only)\b",
+    re.I,
+)
 
 
 def check_acts(
@@ -80,11 +91,26 @@ def check_acts(
 ) -> list[dict]:
     if _pure_history(line):
         return [_recall(line, earlier or {}, last_saved)]
+    noted = _note_from_history(line, pending, earlier or {})
+    if noted:
+        return [noted]
+    offered = _offered_file(line, pending)
+    if offered:
+        kept = [offered]
+        kept.extend(act for act in acts if str(act.get("type") or "") in {"why", "ask"})
+        return kept
     acts = _confirm_labels(acts, line, pending, awaiting)
     acts = _prefer_stated(acts, line)
     kept: list[dict] = []
     for act in acts:
         kind = str(act.get("type") or "")
+        if kind == "change_request":
+            promoted = _correction(act, line)
+            if promoted is None:
+                kept.append(act)
+                continue
+            act = promoted
+            kind = "correct"
         if kind in _SPEAK:
             kept.append(act)
             continue
@@ -131,6 +157,9 @@ def check_acts(
                 reason = "bad_business_type" if field == "business_type" else "bad_payment_methods"
                 kept.append({"type": "refuse", "reason": reason})
                 continue
+            if field == "business_type" and refused_business(line):
+                kept.append({"type": "refuse", "reason": "refused_type"})
+                continue
             value = picked
         else:
             canonical = _canonical(field, act.get("canonical"), line)
@@ -145,6 +174,7 @@ def check_acts(
         kept.append({**act, "field": field, "value_span": value, "said": str(act.get("value_span") or value)})
     if not held:
         kept = _pair(kept, line, pending)
+    kept = _payment_while_phones(kept, line, pending)
     return _merge_payments(_with_question(kept, line))
 
 
@@ -189,11 +219,27 @@ def _closed_pending(pending, field: str, value: str, line: str) -> str:
     name = str(pending.get("name") or "")
     if name not in CLOSED_FIELDS or name == field:
         return field
+    if field == "shop_name" and name == "business_type" and _shop_name_contains_type(value):
+        return field
+    if name == "stores_payer_phones" and _yes_no(line) is None:
+        token = value.strip().lower()
+        if token not in {"yes", "no", "haan", "nahi", "y", "n"}:
+            return field
     if EDIT_CUE.search(line) or _names_other(line, name):
         return field
     if closed_error(name, value) is not None and not list_value(name, line):
         return field
     return name
+
+
+def _shop_name_contains_type(value: str) -> bool:
+    """True when a shop name has a word besides the business type it contains."""
+    phrase = heard("business_type", value)
+    if not phrase:
+        return False
+    rest = re.sub(re.escape(phrase), " ", value, count=1, flags=re.I)
+    rest = _TYPE_FILLER.sub(" ", rest)
+    return bool(re.search(r"[A-Za-z]", rest))
 
 
 def _awaited_field(awaiting: str | None, line: str, value: str) -> str:
@@ -226,6 +272,85 @@ def _names_other(value: str, field: str) -> bool:
     match = FIELD_WORD.search(value)
     named = FIELD_OF.get(match.group(1).lower()) if match else ""
     return bool(named) and named != field
+
+
+def _correction(act: dict, line: str) -> dict | None:
+    """A change request that already names the new value is a correction."""
+    field = str(act.get("field") or "")
+    value = str(act.get("value_span") or "").strip()
+    if field not in FIELDS or not value or not _in_line(value, line):
+        return None
+    if EDIT_CUE.search(value) or _names_other(value, field):
+        return None
+    if field == "shop_name" and _NAME_SENTENCE.search(value):
+        return None
+    if field not in {"business_type", "payment_methods"} and _POINTER.search(value):
+        return None
+    if field == "stores_payer_phones" and not _yes_no(line):
+        return None
+    if field in {"business_type", "payment_methods"} and not list_value(field, line):
+        return None
+    if str(act.get("canonical") or "").strip().lower() == "other":
+        return None
+    return {**act, "type": "correct"}
+
+
+_LACK = re.compile(
+    r"\b(?:don'?t|do not)\s+have\b|\babhi\s+nahi\b|\bnahi\s+hai\b",
+    re.I,
+)
+_HANDOVER = re.compile(
+    r"\b(?:send(?:ing)?|upload(?:ing)?|attached|here(?:'s| is)|bhej)\b",
+    re.I,
+)
+
+
+def _names_slot(line: str, slot: str) -> bool:
+    padded = f" {line.lower()} "
+    return any(hint in padded for hint in SLOT_HINTS.get(slot, ()))
+
+
+def _offered_file(line: str, pending) -> dict | None:
+    """The pending document is named. A missing file is marked missing. A handover is stored."""
+    if not isinstance(pending, dict) or pending.get("kind") != "upload":
+        return None
+    slot = str(pending.get("name") or "")
+    if not slot or not _names_slot(line, slot):
+        return None
+    if _LACK.search(line):
+        return {"type": "missing"}
+    if re.search(r"\?|\b(?:why|what|how|when|where|who|which)\b", line, re.I) and not _HANDOVER.search(line):
+        return None
+    return {"type": "upload"}
+
+
+def _note_from_history(line: str, pending, earlier: dict[str, list[str]]) -> dict | None:
+    """'The name I gave' while the note is pending copies that stored answer into the note."""
+    if not isinstance(pending, dict) or pending.get("kind") != "field" or pending.get("name") != "note":
+        return None
+    if _stated(line) or not re.search(r"\b(?:name|volume|figure|payments?|said|gave|entered)\b", line, re.I):
+        return None
+    field = _history_field(line, earlier, None)
+    prior = earlier.get(field) or []
+    if not field or field == "note" or not prior:
+        return None
+    value = prior[0] if re.search(r"\b(?:first|original|opened|started)\b", line, re.I) else prior[-1]
+    return {"type": "correct", "field": "note", "value_span": value}
+
+
+def _payment_while_phones(acts: list[dict], line: str, pending) -> list[dict]:
+    """'No cards, only UPI' while phones are pending is a payment correction, not a yes or no."""
+    name = str(pending.get("name") or "") if isinstance(pending, dict) and pending.get("kind") == "field" else ""
+    if name != "stores_payer_phones" or _yes_no(line):
+        return acts
+    if re.search(r"\?|\b(?:why|what|how|when|where|who|which)\b", line, re.I):
+        return acts
+    picked = list_value("payment_methods", line)
+    if not picked:
+        return acts
+    if any(act.get("field") == "payment_methods" and act.get("type") in {"answer", "correct"} for act in acts):
+        return acts
+    return [*acts, {"type": "correct", "field": "payment_methods", "value_span": picked, "said": line}]
 
 
 def _change(line: str) -> dict:
@@ -334,7 +459,7 @@ def _history_field(line: str, earlier: dict[str, list[str]], last_saved: str | N
         return FIELD_OF.get(named.group(1).lower(), "")
     if re.search(r"\b(?:figure|volume)\b", line, re.I):
         return "monthly_volume"
-    if re.search(r"\b(?:selection|payment)\b", line, re.I):
+    if re.search(r"\b(?:selection|payments?)\b", line, re.I):
         return "payment_methods"
     if last_saved and earlier.get(last_saved):
         return last_saved

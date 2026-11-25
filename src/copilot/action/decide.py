@@ -6,7 +6,7 @@ import re
 
 from copilot.action.change import file_in, resolve_change, upload_slot
 from copilot.action.closed import closed_error, normalize_closed
-from copilot.words import REFUSED_INTENTS
+from copilot.words import REFUSED_INTENTS, SLOT_HINTS
 
 _PLURAL = re.compile(r"\b(?:these|them|those)\b", re.I)
 
@@ -80,13 +80,21 @@ def _missing(line: str, pending: dict | None, held: bool, slots: dict[str, list[
     return {"action": "again"}
 
 
+def _named_slot(line: str, slot: str) -> bool:
+    padded = f" {line.lower()} "
+    return any(hint in padded for hint in SLOT_HINTS.get(slot, ()))
+
+
 def _upload(line: str, pending: dict | None, slots: dict[str, list[str]], kind: str | None) -> dict:
     if kind == "field":
         return {"action": "again"}
+    slot = upload_slot(line, pending, slots)
     name = file_in(line)
     if not name:
-        return {"action": "refuse", "reason": "no_file"}
-    slot = upload_slot(line, pending, slots)
+        if slot and _named_slot(line, slot):
+            name = f"{slot}.pdf"
+        else:
+            return {"action": "refuse", "reason": "no_file"}
     if not slot:
         return {"action": "which", "slots": slots["open"] + slots["missing"]}
     return {"action": "file", "slot": slot, "file": name}
