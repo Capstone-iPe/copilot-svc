@@ -80,18 +80,18 @@ def test_sdk_delivery_checks_all_acknowledgements(monkeypatch):
     requests = []
 
     def endpoint(request):
-        batch = json.loads(request.content)["batch"]
-        requests.append(batch)
+        assert request.url.path == "/api/public/otel/v1/traces"
+        assert request.headers["x-langfuse-ingestion-version"] == "4"
+        body = json.loads(request.content)
+        requests.append(body)
         if len(requests) == 1:
-            return httpx.Response(207, json={
-                "successes": [], "errors": [{"id": batch[0]["id"], "status": 503, "message": "sensitive detail"}],
-            })
-        return httpx.Response(207, json={
-            "successes": [{"id": item["id"], "status": 201} for item in batch], "errors": [],
-        })
+            return httpx.Response(503, json={"message": "unavailable"})
+        return httpx.Response(200, json={})
 
     monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: original(transport=httpx.MockTransport(endpoint),
                                                                        **kwargs))
+
+    sent = {}
 
     async def run():
         config = settings()
@@ -101,17 +101,19 @@ def test_sdk_delivery_checks_all_acknowledgements(monkeypatch):
                 assert capture is not None
                 complete_model("generation", lambda *args: None, [], 1, None)
                 retrieve(lambda query, k: [], "private query", k=3)
-                payload = capture.payload("app", "client:key", utcnow(), "success")
-            with pytest.raises(TraceDeliveryError, match="incomplete_ingestion_ack"):
-                await delivery.send(payload)
-            await delivery.send(payload)
+                sent["payload"] = capture.payload("app", "client:key", utcnow(), "success")
+            with pytest.raises(TraceDeliveryError, match="http_503"):
+                await delivery.send(sent["payload"])
+            await delivery.send(sent["payload"])
         finally:
             await delivery.close()
 
     asyncio.run(run())
     assert requests[0] == requests[1]
-    assert [event["type"] for event in requests[0]] == ["trace-create", "generation-create", "span-create"]
-    assert {event["body"]["traceId"] for event in requests[0][1:]} == {requests[0][0]["body"]["id"]}
+    spans = requests[0]["resourceSpans"][0]["scopeSpans"][0]["spans"]
+    assert [span["name"] for span in spans] == ["copilot.message", "generation", "policy-retrieval"]
+    assert spans[0]["traceId"] == sent["payload"]["trace_id"]
+    assert {span["parentSpanId"] for span in spans[1:]} == {spans[0]["spanId"]}
 
 
 def test_enabled_configuration_requires_project_keys(monkeypatch):

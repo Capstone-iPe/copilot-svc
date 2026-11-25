@@ -1,8 +1,9 @@
-"""Request-local capture and acknowledged Langfuse ingestion from the durable outbox."""
+"""Request-local capture and acknowledged Langfuse export from the durable outbox."""
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import json
@@ -272,6 +273,7 @@ class LangfuseDelivery:
     def __init__(self, settings: Settings):
         from langfuse.api.client import AsyncFernLangfuse
 
+        self.settings = settings
         self.transport = httpx.AsyncClient(timeout=5)
         self.api = AsyncFernLangfuse(
             base_url=settings.base_url, username=settings.public_key, password=settings.secret_key,
@@ -294,26 +296,120 @@ class LangfuseDelivery:
             raise RuntimeError("LANGFUSE_BASE_URL did not return a Langfuse project response") from None
 
     async def send(self, payload: dict) -> None:
-        from langfuse.api.core.api_error import ApiError
-        from langfuse.api.core.pydantic_utilities import pydantic_v1
-        from langfuse.api.resources.ingestion.types.ingestion_event import IngestionEvent
-
-        # SDK flush only drains an in-memory queue; the API client returns per-event acknowledgements.
+        """Post one stored turn to the OTLP trace endpoint that replaced /api/public/ingestion."""
+        token = base64.b64encode(f"{self.settings.public_key}:{self.settings.secret_key}".encode()).decode()
         try:
-            events = pydantic_v1.parse_obj_as(list[IngestionEvent], payload["events"])
             async with asyncio.timeout(10):
-                result = await self.api.ingestion.batch(batch=events, request_options={"max_retries": 0})
-        except ApiError as exc:
-            raise TraceDeliveryError(f"http_{exc.status_code}") from None
+                response = await self.transport.post(
+                    f"{self.settings.base_url}/api/public/otel/v1/traces",
+                    json=_otel_request(payload),
+                    headers={
+                        "Authorization": f"Basic {token}",
+                        "x-langfuse-ingestion-version": "4",
+                    },
+                )
         except (httpx.RequestError, TimeoutError, ValueError) as exc:
             raise TraceDeliveryError(type(exc).__name__) from None
-        expected = {event["id"] for event in payload["events"]}
-        accepted = {item.id for item in result.successes if 200 <= item.status < 300}
-        if result.errors or accepted != expected:
-            raise TraceDeliveryError("incomplete_ingestion_ack")
+        if response.status_code < 200 or response.status_code >= 300:
+            raise TraceDeliveryError(f"http_{response.status_code}")
 
     async def close(self) -> None:
         await self.transport.aclose()
+
+
+def _otel_request(payload: dict) -> dict:
+    events = payload["events"]
+    root = next(event for event in events if event["type"] == "trace-create")
+    body = root["body"]
+    trace_id = str(body["id"])
+    parent = root["id"][:16]
+    shared = _shared_attributes(body)
+    spans = [_otel_span(root, trace_id, None, shared)]
+    spans.extend(_otel_span(event, trace_id, parent, shared) for event in events if event is not root)
+    return {"resourceSpans": [{
+        "resource": {"attributes": [_otel_value("service.name", "copilot-svc")]},
+        "scopeSpans": [{"scope": {"name": "copilot-svc"}, "spans": spans}],
+    }]}
+
+
+def _otel_span(event: dict, trace_id: str, parent: str | None, shared: list[dict]) -> dict:
+    body = event["body"]
+    start = body.get("startTime") or body.get("timestamp") or event.get("timestamp")
+    end = body.get("endTime") or event.get("timestamp") or start
+    attributes = list(shared)
+    attributes.append(_otel_value(
+        "langfuse.observation.type",
+        "generation" if event["type"] == "generation-create" else "span",
+    ))
+    if model := body.get("model"):
+        attributes.append(_otel_value("langfuse.observation.model.name", model))
+    if usage := body.get("usageDetails"):
+        attributes.append(_otel_value("langfuse.observation.usage_details", json.dumps(usage)))
+    for name in ("input", "output"):
+        if name in body:
+            attributes.append(_otel_value(f"langfuse.observation.{name}", body[name]))
+    if level := body.get("level"):
+        attributes.append(_otel_value("langfuse.observation.level", level))
+    if message := body.get("statusMessage"):
+        attributes.append(_otel_value("langfuse.observation.status_message", message))
+    attributes.extend(_metadata(body.get("metadata") or {}))
+    span = {
+        "traceId": trace_id,
+        "spanId": event["id"][:16],
+        "name": str(body.get("name") or "copilot.turn"),
+        "kind": 1,
+        "startTimeUnixNano": _unix_nano(start),
+        "endTimeUnixNano": _unix_nano(end),
+        "attributes": attributes,
+    }
+    if parent:
+        span["parentSpanId"] = parent
+    return span
+
+
+def _shared_attributes(root: dict) -> list[dict]:
+    values = {
+        "langfuse.trace.name": root.get("name"),
+        "langfuse.user.id": root.get("userId"),
+        "langfuse.session.id": root.get("sessionId"),
+        "langfuse.environment": root.get("environment"),
+        "langfuse.release": root.get("release"),
+    }
+    return [_otel_value(key, value) for key, value in values.items() if value]
+
+
+def _metadata(metadata: dict) -> list[dict]:
+    attributes = []
+    for key, value in metadata.items():
+        if not isinstance(key, str) or not key:
+            continue
+        text = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        attributes.append(_otel_value(f"langfuse.observation.metadata.{key}", text))
+        if isinstance(value, str):
+            attributes.append(_otel_value(f"langfuse.trace.metadata.{key}", text[:200]))
+    return attributes
+
+
+def _otel_value(key: str, value) -> dict:
+    if isinstance(value, bool):
+        stored = {"boolValue": value}
+    elif isinstance(value, int):
+        stored = {"intValue": value}
+    elif isinstance(value, float):
+        stored = {"doubleValue": value}
+    else:
+        stored = {"stringValue": value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)}
+    return {"key": key, "value": stored}
+
+
+def _unix_nano(value: str | None) -> str:
+    if not value:
+        moment = datetime.now(UTC)
+    else:
+        moment = datetime.fromisoformat(value)
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+    return str(int(moment.timestamp() * 1_000_000_000))
 
 
 async def export_loop(history: History, settings: Settings, delivery: LangfuseDelivery, stop: asyncio.Event) -> None:

@@ -96,10 +96,11 @@ message, upload, or submit. Authentication/validation failures before reservatio
   available after the next conversation load/turn. An earlier error revision can contain actual
   observations captured before the failure.
 - The exporter claims outbox rows with PostgreSQL row locks (`SKIP LOCKED`) and orders revisions
-  for a turn. It awaits the pinned official Python SDK's batch ingestion API (the legacy ingestion
-  endpoint) instead of buffered tracing and `flush()`, which cannot confirm each event. A row is
-  delivered only when every event is acknowledged; this means ingestion accepted it, not necessarily
-  that the UI has indexed it. Transport retries reuse the same trace, observation and event IDs.
+  for a turn. It posts that turn to Langfuse's OTLP trace endpoint
+  (`/api/public/otel/v1/traces`) instead of the retired `/api/public/ingestion` batch API, and
+  instead of buffered tracing and `flush()`, which cannot confirm delivery. A row is delivered
+  only when Langfuse accepts the whole turn; this means the endpoint accepted it, not necessarily
+  that the UI has indexed it. Transport retries reuse the same trace and span IDs.
   FastAPI lets the active submission finish on shutdown; pending rows survive restarts.
 - Monitor pending count/oldest pending age (`delivered_at IS NULL`) and the `copilot.telemetry`
   warning logs; delivery errors are logged without exception bodies. Retries back off up to five
