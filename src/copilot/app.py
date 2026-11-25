@@ -34,6 +34,7 @@ from pydantic import BaseModel, Field
 
 from copilot.adapters.web import WebAdapter, asking_for, new_message, prompt_view
 from copilot.dialogue import DialogueState
+from copilot.edge import allow
 from copilot.history import ConversationBusy, ConversationHistory, History
 from copilot.identity import AudienceRejected, Merchant
 from copilot.observability import LangfuseDelivery, Settings, TurnTrace, export_loop, turn_capture, utcnow
@@ -103,6 +104,15 @@ def create_app(start: SessionFactory, history: History, verify: MerchantVerifier
     app.add_exception_handler(OperationalError, _history_unavailable)
     app.add_exception_handler(Exception, _any_error)
     return app
+
+
+def _limit(merchant_id: str) -> None:
+    if allow(merchant_id):
+        return
+    raise HTTPException(
+        status_code=429,
+        detail={"code": "rate_limited", "message": "Too many messages. Wait a minute and try again."},
+    )
 
 
 def _bearer(authorization: str | None) -> str:
@@ -472,6 +482,7 @@ async def send_message(
     x_merchant_id: str | None = Header(default=None),
 ) -> dict:
     bearer, merchant = await _authenticate(request, authorization, x_merchant_id)
+    _limit(merchant.id)
     if body.action == "submit":
         line = "submit"
         shown = "Submit application"
@@ -496,6 +507,7 @@ async def send_file(
     client_message_id: str | None = Form(None, min_length=1, max_length=128),
 ) -> dict:
     bearer, merchant = await _authenticate(request, authorization, x_merchant_id)
+    _limit(merchant.id)
     name = (file.filename or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail={"code": "no_file", "message": "Choose a file."})

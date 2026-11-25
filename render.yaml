@@ -2,6 +2,12 @@
 # Secrets stay sync: false. Google refresh stays on the FE.
 
 services:
+  - type: keyvalue
+    name: copilot-cache
+    plan: free
+    region: oregon
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
   - type: web
     name: copilot-svc
     runtime: python
@@ -33,3 +39,8 @@ services:
         sync: false
       - key: CORPUS_API_KEY
         sync: false
+      - key: REDIS_URL
+        fromService:
+          name: copilot-cache
+          type: keyvalue
+          property: connectionString

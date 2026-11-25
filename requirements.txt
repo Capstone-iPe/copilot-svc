@@ -5,4 +5,5 @@ python-dotenv
 httpx
 python-multipart
 psycopg[binary]>=3.2
+redis>=5
 langfuse==3.14.0
