@@ -38,7 +38,10 @@ Place `vm06-ca.crt` at the repo root locally (gitignored). On Render, mount it a
 | `CORPUS_API_KEY` | Bearer for `/v1/search` (same secret as onb-corpus) |
 | `DATABASE_URL` | Required for FastAPI: shared PostgreSQL connection string |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID used by the web UI. `GOOGLE_ALLOWED_AUDIENCES` lists extra client IDs. A token issued for any other client is rejected with 403 |
-| `GOOGLE_ALLOWED_EMAILS` | Gmail addresses. Applied only when `GOOGLE_ENFORCE_ALLOWED_EMAILS` is `1`, `true`, `yes`, or `on`. The flag is off |
+| `GOOGLE_ALLOWED_EMAILS` | Gmail addresses. Applied only when `GOOGLE_ENFORCE_ALLOWED_EMAILS` is `1`, `true`, `yes`, or `on`. The flag is off on the live service |
+| `REDIS_URL` | Render Key Value. Empty locally: no rate limit and no search cache |
+| `COPILOT_RATE_LIMIT` | Messages and file uploads per signed-in merchant per UTC minute. Default 30 |
+| `COPILOT_SEARCH_CACHE_TTL` | Seconds to reuse an identical policy search. Default 300. Empty hit lists are not cached |
 
 ## Setup
 
@@ -104,9 +107,13 @@ USE_MEMORY_ONB=1 PYTHONPATH=src:replay .venv/bin/python -m copilot
 HTTP shape matches the web-app chat contract (`ConversationView`, list/load, multipart files).
 Pills are upload/submit only — no suggestion chips. The FE refreshes Google; this service forwards the bearer to ONB.
 
-Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com)
+Render: [https://copilot-svc.onrender.com](https://copilot-svc.onrender.com). Health: `GET /v1/health`.
 
-Provision a non-expiring PostgreSQL database and set `DATABASE_URL` and `GOOGLE_CLIENT_ID` in the Render dashboard.
+The live service rate-limits messages and file uploads to 30 per signed-in merchant per UTC minute (`429`, code `rate_limited`). The same Key Value store caches policy-search hits for five minutes. A store error fails open: the turn still runs, and the search calls onb-corpus. Health, create, list, and load are not limited. Leave `REDIS_URL` empty on a laptop.
+
+Live tracing is on: each turn is exported to Langfuse (US), the session id is the ONB application id, and `COPILOT_TRACE_CAPTURE_CONTENT` stays false. The local `.env.example` leaves `COPILOT_LANGFUSE_ENABLED` off.
+
+The live service uses the Render Postgres database already attached to it. Set `DATABASE_URL` and `GOOGLE_CLIENT_ID` in the Render dashboard.
 Use the same database for all Copilot instances and deployments. Use a direct connection or a session-mode pooler
 (the service uses PostgreSQL session-level advisory locks). Copilot creates its tables at startup; the database role
 needs permission to create them. The service will not start without storage and token-verification configuration.
@@ -136,7 +143,7 @@ In copilot-web-app `.env`:
 CHAT_SERVICE_URL=https://copilot-svc.onrender.com
 ```
 
-### Langfuse turn tracing (optional)
+### Langfuse turn tracing
 
 1. Install the service dependencies and configure `DATABASE_URL` as above. The service creates
    `copilot_trace_outbox` and its index at startup using the existing history migration lock.
