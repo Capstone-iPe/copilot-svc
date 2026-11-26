@@ -25,6 +25,10 @@ services:
         sync: false
       - key: GOOGLE_ALLOWED_AUDIENCES
         sync: false
+      - key: GOOGLE_ALLOWED_EMAILS
+        sync: false
+      - key: GOOGLE_ENFORCE_ALLOWED_EMAILS
+        value: "0"
       - key: CHAT_BASE_URL
         value: https://103.42.50.41:1032/v1
       - key: CHAT_CA_CERT

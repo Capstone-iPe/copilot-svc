@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 
 from copilot.app import create_app
 from copilot.history import History
-from copilot.identity import verify_merchant
+from copilot.identity import emails_from_env, enforce_allowed_emails, verify_merchant
 
 
 def main() -> None:
@@ -38,7 +38,16 @@ def main() -> None:
     else:
         from copilot.live import live_start as start
 
-    app = create_app(start, History(dsn), partial(verify_merchant, audiences=audiences))
+    app = create_app(
+        start,
+        History(dsn),
+        partial(
+            verify_merchant,
+            audiences=audiences,
+            allowed_emails=emails_from_env(os.environ.get("GOOGLE_ALLOWED_EMAILS", "")),
+            enforce_emails=enforce_allowed_emails(os.environ.get("GOOGLE_ENFORCE_ALLOWED_EMAILS", "")),
+        ),
+    )
     port = int(os.environ.get("PORT", "8080"))
     server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=port))
     # Psycopg's async connections need a selector loop on Windows.

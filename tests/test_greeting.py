@@ -6,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from copilot.app import _authenticate
-from copilot.identity import AudienceRejected, Merchant, merchant_call_name, verify_merchant
+from copilot.identity import AudienceRejected, EmailRejected, Merchant, merchant_call_name, verify_merchant
 from copilot.say.greeting import welcome_text
 
 
@@ -61,6 +61,19 @@ def test_merchant_requires_the_allowed_audience_and_a_verified_subject(
             verify_merchant("google-token", frozenset({"web"}))
         return
     assert verify_merchant("google-token", frozenset({"web"})) == expected
+
+
+def test_the_gmail_list_applies_only_when_enforcement_is_on(monkeypatch) -> None:
+    monkeypatch.setattr("copilot.identity._get_json", lambda _url: {"aud": "web", "sub": "123"})
+    monkeypatch.setattr("copilot.identity._userinfo", lambda _token: {
+        "sub": "123", "email": "other@gmail.com", "email_verified": True, "given_name": "Ada",
+    })
+    listed = frozenset({"owner@gmail.com"})
+    assert verify_merchant("google-token", frozenset({"web"}), allowed_emails=listed, enforce_emails=False) == Merchant(
+        "google:123", "Ada"
+    )
+    with pytest.raises(EmailRejected):
+        verify_merchant("google-token", frozenset({"web"}), allowed_emails=listed, enforce_emails=True)
 
 
 def test_a_token_for_another_client_is_forbidden() -> None:

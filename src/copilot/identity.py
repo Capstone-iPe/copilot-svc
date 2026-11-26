@@ -25,7 +25,26 @@ class AudienceRejected(Exception):
     """The access token was issued for a client outside the allowed set."""
 
 
-def verify_merchant(access_token: str, audiences: frozenset[str]) -> Merchant | None:
+class EmailRejected(Exception):
+    """The Google account is outside the list, and that list is being enforced."""
+
+
+def enforce_allowed_emails(raw: str) -> bool:
+    """True only when the flag is 1, true, yes, or on."""
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def emails_from_env(raw: str) -> frozenset[str]:
+    return frozenset(part.strip().lower() for part in raw.split(",") if part.strip())
+
+
+def verify_merchant(
+    access_token: str,
+    audiences: frozenset[str],
+    *,
+    allowed_emails: frozenset[str] = frozenset(),
+    enforce_emails: bool = False,
+) -> Merchant | None:
     try:
         info = _get_json(f"{TOKENINFO_URL}?{urlencode({'access_token': access_token})}")
     except (ValueError, TypeError):
@@ -42,6 +61,10 @@ def verify_merchant(access_token: str, audiences: frozenset[str]) -> Merchant | 
         return None
     if (token_subject := info.get("sub")) is not None and token_subject != subject:
         return None
+    if enforce_emails and allowed_emails:
+        email = profile.get("email")
+        if not isinstance(email, str) or email.strip().lower() not in allowed_emails:
+            raise EmailRejected()
     return Merchant(f"google:{subject}", _call_name(profile))
 
 

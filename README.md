@@ -38,6 +38,7 @@ Place `vm06-ca.crt` at the repo root locally (gitignored). On Render, mount it a
 | `CORPUS_API_KEY` | Bearer for `/v1/search` (same secret as onb-corpus) |
 | `DATABASE_URL` | Required for FastAPI: shared PostgreSQL connection string |
 | `GOOGLE_CLIENT_ID` | Google OAuth client ID used by the web UI. `GOOGLE_ALLOWED_AUDIENCES` lists extra client IDs. A token issued for any other client is rejected with 403 |
+| `GOOGLE_ALLOWED_EMAILS` | Gmail addresses. Applied only when `GOOGLE_ENFORCE_ALLOWED_EMAILS` is `1`, `true`, `yes`, or `on`. The flag is off |
 
 ## Setup
 

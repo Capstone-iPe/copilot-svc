@@ -36,7 +36,7 @@ from copilot.adapters.web import WebAdapter, asking_for, new_message, prompt_vie
 from copilot.dialogue import DialogueState
 from copilot.edge import allow
 from copilot.history import ConversationBusy, ConversationHistory, History
-from copilot.identity import AudienceRejected, Merchant
+from copilot.identity import AudienceRejected, EmailRejected, Merchant
 from copilot.observability import LangfuseDelivery, Settings, TurnTrace, export_loop, turn_capture, utcnow
 from copilot.onb.mcp_onb import OnbAsleep
 from copilot.reply import Reply
@@ -133,6 +133,11 @@ async def _authenticate(request: Request, authorization: str | None, claimed_id:
             status_code=403,
             detail={"code": "forbidden", "message": "This Google client is not allowed."},
         ) from None
+    except EmailRejected:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "forbidden", "message": "This Google account is not allowed."},
+        ) from None
     if merchant is None or (claimed_id is not None and claimed_id.strip() != merchant.id):
         raise HTTPException(
             status_code=401,
@@ -212,8 +217,7 @@ def _onb_http_error(exc: BaseException, *, opening: bool = False) -> HTTPExcepti
             detail={
                 "code": "unauthorized",
                 "message": (
-                    "ONB rejected the Google access token. Use Google sign-in (not development "
-                    "login), and confirm GOOGLE_ALLOWED_EMAILS on onb-k8ud includes this account."
+                    "ONB rejected the Google access token. Sign in with Google again."
                 ),
             },
         )
