@@ -45,12 +45,49 @@ Place `vm06-ca.crt` at the repo root locally (gitignored). On Render, mount it a
 
 ## Setup
 
+Python 3.12. The FastAPI process also needs PostgreSQL 16 and a Google OAuth web client id.
+
 ```bash
-python3 -m venv .venv
+git clone https://github.com/Capstone-iPe/copilot-svc.git
+cd copilot-svc
+python3.12 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+createdb ipe_copilot
+cp .env.example .env
 ```
 
-Corpus must be reachable at `CORPUS_SEARCH_URL` (hosted onb-corpus or local `PYTHONPATH=src python -m onb_corpus serve`).
+Place `vm06-ca.crt` in this directory. The file is gitignored.
+
+## Run locally with the other services
+
+Clone [onb-corpus](https://github.com/Capstone-iPe/onb-corpus), [onb-svc](https://github.com/Capstone-iPe/onb-svc), and [copilot-web-app](https://github.com/Capstone-iPe/copilot-web-app) next to this repository, and start corpus (port 8081) and ONB (port 8000) first. The [analysis README](https://github.com/Capstone-iPe/analysis#run-the-services-locally) lists the shared Google client, the two hosted keys, and the CA files.
+
+In this repository's `.env`, point the service at those local processes:
+
+```bash
+ONB_MCP_URL=http://127.0.0.1:8000/mcp
+CORPUS_SEARCH_URL=http://127.0.0.1:8081
+CORPUS_API_KEY=<the same secret as onb-corpus>
+DATABASE_URL=postgresql://localhost:5432/ipe_copilot
+GOOGLE_CLIENT_ID=<the same client id as the website and ONB>
+CHAT_API_KEY=<issued chat key>
+CHAT_CA_CERT=vm06-ca.crt
+CHAT_BASE_URL=https://103.42.50.41:1032/v1
+CHAT_MODEL=Qwen/Qwen3-8B
+COPILOT_LANGFUSE_ENABLED=false
+```
+
+Leave `REDIS_URL` empty. A laptop then has no rate limit and no search cache. Leave the Langfuse keys empty while `COPILOT_LANGFUSE_ENABLED` is `false`.
+
+```bash
+PYTHONPATH=src .venv/bin/python -m copilot
+```
+
+The process listens on `http://0.0.0.0:8080`. `curl -sS http://127.0.0.1:8080/v1/health` answers when it is up. It refuses to start until `DATABASE_URL` is set and `GOOGLE_CLIENT_ID` (or `GOOGLE_ALLOWED_AUDIENCES`) is set. It creates `copilot_conversations`, `copilot_turns`, and `copilot_trace_outbox` on startup. The database role needs permission to create tables. Ctrl+C stops it. The next start reads the same Postgres database.
+
+The website then uses `CHAT_SERVICE_URL=http://127.0.0.1:8080`. A merchant signs in with Google on that site. This service checks the access token with Google and forwards it to ONB. The test-merchant button in the website is for the website's mock chat, and this service rejects it.
+
+Corpus must be reachable at `CORPUS_SEARCH_URL` before a question that searches policy. ONB must be reachable at `ONB_MCP_URL` before a turn that saves an answer.
 
 ## Run the CLI
 
@@ -67,7 +104,7 @@ Closed fields: `business_type`, `payment_methods`, and `stores_payer_phones` mus
 
 ## Eval replay (no Google sign-in)
 
-Uses in-process ONB (`replay/memory_onb.py` → sibling `onb-svc`) and gold shops from `iPe/eval`.
+Uses in-process ONB (`replay/memory_onb.py` looks for a sibling `onb-svc`) and the gold shops in a sibling `analysis/eval`.
 
 ```bash
 # Build set G-001–G-050 (gate ≥95%)
