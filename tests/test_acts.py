@@ -1234,3 +1234,24 @@ def test_change_bank_proof_and_business_registration() -> None:
     reply4 = asyncio.run(session.turn("business_reg_new.pdf"))
     assert ("save_file", "business_registration", "business_reg_new.pdf", False) in onb.calls
 
+
+
+def test_an_upload_is_stored_whatever_the_file_is_called() -> None:
+    class Uploads(Shop):
+        def _step(self) -> dict:
+            done = any(c[0] == "save_file" for c in self.calls)
+            pending = None if done else {"kind": "upload", "name": "bank_proof"}
+            return {"application_id": "app_1", "pending": pending,
+                    "snapshot": {"answers": {}, "files": {}}}
+
+        async def save_file(self, application_id, slot, file=None, missing=False):
+            self.calls.append(("save_file", slot, file))
+            return {"ok": True}
+
+    data = "data:application/pdf;base64,QQ=="
+    for name in ("IMG 0042 (final) activate the shop.pdf", "scan#7.png", "नमूना.jpg", "x"):
+        for document in ("bank_proof",):
+            onb = Uploads()
+            session, onb = _session(onb, asyncio.run(onb.next_step()), Boom())
+            asyncio.run(session.turn(name, payload=data, document=document))
+            assert ("save_file", "bank_proof", data) in onb.calls

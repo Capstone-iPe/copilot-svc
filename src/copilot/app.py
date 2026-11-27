@@ -437,7 +437,7 @@ async def _run_turn(
                 capture.model = capture.clean(model, 128, digits=False)
             try:
                 try:
-                    reply = await session.turn(line, payload=turn_request.get("payload"))
+                    reply = await session.turn(line, payload=turn_request.get("payload"), document=turn_request.get("document"))
                     decision = reply.trace
                 except Exception as exc:
                     log.exception("live ONB turn failed conversation_id=%s", cid)

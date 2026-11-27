@@ -22,7 +22,7 @@ from copilot.reply import Reply
 from copilot.say.files import result_reply
 from copilot.say.questions import answers, prompt_for
 from copilot.say.refusals import refusal, which_reply
-from copilot.words import DIGITS, FIELD_OF, FIELD_WORD
+from copilot.words import DIGITS, FIELD_OF, FIELD_WORD, SLOT_HINTS
 
 log = logging.getLogger("copilot")
 
@@ -42,7 +42,23 @@ class Session:
         self.step = step
         self.dialogue = DialogueState()
 
-    async def turn(self, line: str, payload: str | None = None) -> Reply:
+    async def _upload(self, line: str, payload: str, document: str | None) -> Reply:
+        """A real upload. The page names the slot; the file name is only a label, never read as chat."""
+        pending, snapshot, verdict, held = _view(self.step)
+        if document in SLOT_HINTS:
+            action = {"action": "file", "slot": document, "file": payload}
+        else:
+            slots = slot_states(snapshot)
+            action = {"action": "which", "slots": slots["open"] + slots["missing"]}
+        trace = {"stage": stage(pending, held), "intent": "upload", "source": "upload", "action": action["action"]}
+        reply, written, step = await self._answer(line, pending, snapshot, verdict, action, trace)
+        trace["reply"] = written
+        self.step = step
+        return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
+
+    async def turn(self, line: str, payload: str | None = None, document: str | None = None) -> Reply:
+        if payload:
+            return await self._upload(line, payload, document)
         pending, snapshot, verdict, held = _view(self.step)
         if pending and pending.get("name"):
             self.dialogue.focus = str(pending["name"])
