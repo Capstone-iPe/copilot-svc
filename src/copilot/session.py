@@ -45,15 +45,18 @@ class Session:
     async def _upload(self, line: str, payload: str, document: str | None) -> Reply:
         """A real upload. The page names the slot; the file name is only a label, never read as chat."""
         pending, snapshot, verdict, held = _view(self.step)
-        if document in SLOT_HINTS:
-            action = {"action": "file", "slot": document, "file": payload}
+        slots = slot_states(snapshot)
+        slot = document if document in SLOT_HINTS else _fallback_slot(pending, self.dialogue.awaiting, slots)
+        if slot:
+            action = {"action": "file", "slot": slot, "file": payload}
         else:
-            slots = slot_states(snapshot)
             action = {"action": "which", "slots": slots["open"] + slots["missing"]}
         trace = {"stage": stage(pending, held), "intent": "upload", "source": "upload", "action": action["action"]}
         reply, written, step = await self._answer(line, pending, snapshot, verdict, action, trace)
         trace["reply"] = written
         self.step = step
+        if slot:
+            self.dialogue.awaiting = None
         return Reply(text=reply, prompt=prompt_for(step), trace=trace, step=step)
 
     async def turn(self, line: str, payload: str | None = None, document: str | None = None) -> Reply:
@@ -458,6 +461,16 @@ def _ordered(acts: list[dict], pending, snapshot) -> list[dict]:
         return rank, index
 
     return [act for _, act in sorted(enumerate(acts), key=key)]
+
+
+def _fallback_slot(pending, awaiting, slots) -> str | None:
+    """The form named no document: use the one the chat is asking for, never the file name."""
+    if pending and pending.get("kind") == "upload" and pending.get("name"):
+        return str(pending["name"])
+    if awaiting and awaiting.startswith("upload_for:"):
+        return awaiting.split(":", 1)[1]
+    open_slots = slots["open"] + slots["missing"]
+    return open_slots[0] if len(open_slots) == 1 else None
 
 
 def _view(step: dict):
