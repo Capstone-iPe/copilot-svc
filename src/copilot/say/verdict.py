@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from copilot.say.questions import slot_list
-from copilot.words import ASSIGNEE_WORDS
+from copilot.words import ASSIGNEE_WORDS, SLOT_WORDS
 
 
 def verdict_reply(verdict: dict, answers: dict) -> str:

@@ -473,7 +473,7 @@ def test_the_verdict_uses_the_stored_words() -> None:
             "outcome": "RECOMMEND_GO_LIVE",
             "review_id": "MR-2041",
             "assignee": "MERCHANT_RISK_LEAD",
-            "missing_items": [],
+            "missing_items": ["bank_proof"],
             "citations": ["ONB-POL-001 §4"],
         },
         {"shop_name": "Why Not Cafe"},
@@ -482,3 +482,4 @@ def test_the_verdict_uses_the_stored_words() -> None:
     assert "MR-2041" in text
     assert "Merchant Risk Lead" in text
     assert "The shop is not live." in text
+    assert "Missing: bank proof." in text
